@@ -1,0 +1,4 @@
+node_modules/
+root/data/
+root/index.js
+root/legacy.js

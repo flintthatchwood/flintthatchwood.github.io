@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>ARK Resource Maps</title>
+        <link rel="icon" href="favicon.ico" />
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                background: #14212b;
+                color: #e8eef2;
+                font:
+                    14px system-ui,
+                    sans-serif;
+            }
+            [hidden] {
+                display: none !important;
+            }
+            body:not(.show-debug) [data-debug] {
+                display: none !important;
+            }
+            #viewport {
+                position: fixed;
+                inset: 0;
+            }
+            canvas {
+                display: block;
+                touch-action: none;
+            }
+            .panel {
+                position: fixed;
+                top: 20px;
+                left: 20px;
+                width: 330px;
+                max-height: calc(100dvh - 40px);
+                overflow: auto;
+                background: #13212def;
+                border: 1px solid #36505e;
+                border-radius: 14px;
+                padding: 20px;
+            }
+            #panel-toggle {
+                position: fixed;
+                top: 20px;
+                left: 354px;
+                z-index: 2;
+                padding: 4px 10px;
+                font-size: 22px;
+            }
+            body.panel-collapsed #panel-toggle {
+                left: 20px;
+            }
+            h1 {
+                font-size: 26px;
+                margin: 10px 0;
+            }
+            h2 {
+                font-size: 16px;
+            }
+            label {
+                display: block;
+                margin: 12px 0;
+            }
+            input[type='range'],
+            select {
+                width: 100%;
+            }
+            input {
+                accent-color: #8acdb5;
+            }
+            button,
+            select {
+                background: #25414b;
+                color: #e7f5f0;
+                border: 1px solid #456875;
+                border-radius: 6px;
+                padding: 8px;
+                cursor: pointer;
+            }
+            .buttons {
+                display: flex;
+                gap: 8px;
+                margin: 12px 0;
+            }
+            .note,
+            #status {
+                font-size: 11px;
+                color: #b0c5cf;
+                white-space: pre-line;
+                line-height: 1.5;
+            }
+            #camera-code {
+                width: 100%;
+                resize: vertical;
+                font: 11px ui-monospace, monospace;
+            }
+            .resource-option {
+                display: flex;
+                gap: 6px;
+                align-items: center;
+                font-size: 12px;
+            }
+            .swatch {
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                flex-shrink: 0;
+            }
+            #warnings {
+                color: #e6cc91;
+                white-space: normal;
+            }
+            #warning-summary {
+                white-space: pre-line;
+            }
+            #warning-list {
+                max-height: 240px;
+                overflow: auto;
+                overflow-wrap: anywhere;
+                padding-left: 18px;
+                white-space: normal;
+            }
+            #warning-list li {
+                margin-bottom: 8px;
+            }
+            #warning-count {
+                cursor: pointer;
+            }
+            #image-warning {
+                margin: 10px 0;
+                overflow-wrap: anywhere;
+                color: #ffe4a6;
+                background: #3b3021;
+                border: 1px solid #8e7446;
+                padding: 8px;
+                border-radius: 6px;
+            }
+            #resource-details {
+                white-space: pre-line;
+                font-size: 12px;
+                line-height: 1.6;
+            }
+            #coordinates,
+            #debug-panel {
+                position: fixed;
+                right: 16px;
+                bottom: 16px;
+                white-space: pre-line;
+                background: #13212def;
+                padding: 12px;
+                border-radius: 8px;
+                font:
+                    12px ui-monospace,
+                    monospace;
+                pointer-events: none;
+            }
+            #debug-panel {
+                bottom: 170px;
+                max-width: 45vw;
+            }
+            #loading,
+            #error {
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                max-width: 70vw;
+                background: #14212bf5;
+                border: 1px solid #7898a5;
+                border-radius: 9px;
+                padding: 14px;
+                z-index: 10;
+            }
+            #error {
+                color: #ffc7b6;
+            }
+            hr {
+                border: 0;
+                border-top: 1px solid #36505e;
+                margin: 18px 0;
+            }
+            @media (max-width: 650px) {
+                #panel-toggle {
+                    top: 10px;
+                    left: 259px;
+                }
+                body.panel-collapsed #panel-toggle {
+                    left: 10px;
+                }
+                .panel {
+                    top: 10px;
+                    left: 10px;
+                    width: 245px;
+                    padding: 14px;
+                    max-height: 65dvh;
+                }
+                #coordinates {
+                    font-size: 10px;
+                    max-width: 95vw;
+                }
+                #debug-panel {
+                    max-width: 90vw;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <main id="viewport" aria-label="Interactive ARK resource terrain map"></main>
+        <button id="panel-toggle" aria-controls="control-panel" aria-expanded="true" aria-label="Collapse controls" title="Collapse controls">&#x2039;</button>
+        <aside id="control-panel" class="panel" aria-label="Map and resource controls">
+            <select id="mapSelect" aria-label="Select map"></select>
+            <h1 id="map-title">ARK Resource Maps</h1>
+            <div id="image-warning" class="note" role="status" hidden></div>
+            <p class="note" data-debug>
+                Map-textured collision-world exterior. Covered mesh and block faces use nearby
+                map colors, with darker walls and undersides. Both world representations
+                keep a complete coarse base while loading nearby detail;
+                no heightfield fallback is used.
+            </p>
+            <section id="warnings" class="note" aria-label="3D data availability and warnings" data-debug>
+                <div id="warning-summary"></div>
+                <details id="warning-details" hidden>
+                    <summary id="warning-count"></summary>
+                    <ul id="warning-list"></ul>
+                </details>
+            </section>
+            <div class="buttons">
+                <button id="top">Top-down</button><button id="home">Oblique</button>
+            </div>
+            <label>
+                Camera projection
+                <select id="camera-projection">
+                    <option value="orthographic" selected>Orthographic</option>
+                    <option value="perspective">Perspective</option>
+                </select>
+            </label>
+            <label>
+                Movement mode
+                <select id="movement-mode">
+                    <option value="world" selected>World</option>
+                    <option value="camera">Camera</option>
+                </select>
+            </label>
+            <div id="camera-look-options" hidden>
+                <label><input id="camera-invert-y" type="checkbox" /> Invert vertical look (drag down looks up)</label>
+                <p class="note">Look from a fixed position. Movement blocks against streamed terrain; coarse geometry can close passages. CCC and presets remain teleports.</p>
+            </div>
+            <div class="buttons">
+                <button id="camera-copy">Copy CCC</button>
+                <button id="camera-paste">Paste CCC</button>
+            </div>
+            <p id="camera-status" class="note" role="status"></p>
+            <details data-debug>
+                <summary>Camera / ccc</summary>
+                <label for="camera-code">X Y Z Yaw Pitch</label>
+                <textarea id="camera-code" rows="2" spellcheck="false"></textarea>
+                <div class="buttons">
+                    <button id="camera-go">Go to ccc</button>
+                </div>
+            </details>
+            <label id="world-representation-label" hidden>
+                World representation
+                <select id="world-representation">
+                    <option value="cubes" selected>Cubes</option>
+                    <option value="triangles">Triangles</option>
+                </select>
+            </label>
+            <label id="cube-size-label" hidden>
+                Far cube target <output id="cube-size-value">4× (loading resolution)</output>
+                <input id="cube-size" type="range" min="0" max="6" step="1" value="2" />
+                <span id="cube-size-note" class="note">Nearby resolution comes from the map export. The complete coarse base stays loaded.</span>
+            </label>
+            <p id="world-model-status" class="note" role="status" data-debug>No world model loaded.</p>
+            <button id="world-model-retry" hidden>Retry world model</button>
+            <details id="world-model-details" class="note" data-debug hidden>
+                <summary>World-model generation details and warnings</summary>
+                <p id="world-model-resolution"></p>
+                <ul
+                    id="world-model-warnings"
+                    style="max-height: 200px; overflow: auto; overflow-wrap: anywhere"
+                ></ul>
+            </details>
+            <label id="world-cutaway-label" hidden>
+                Cutaway height <output id="world-cutaway-value"></output>
+                <input id="world-cutaway" type="range" min="-2000" max="600" value="600" step="1" />
+            </label>
+            <p class="note" data-debug>
+                Only extracted 3D geometry is shown. World detail streams near the view. Lower Terrain opacity or use the cutaway
+                slider to reveal interior surfaces.
+            </p>
+            <label><input id="shading" type="checkbox" checked />Terrain lighting</label>
+            <label><input id="wireframe" type="checkbox" />Show mesh edges</label>
+            <label>
+                Terrain opacity <output id="terrain-opacity-value">100.00%</output
+                ><input id="terrain-opacity" type="range" min="0.15" max="1" step="0.05" value="1"
+            /></label>
+            <hr />
+            <h2>Resources</h2>
+            <label><input id="cluster-enabled" type="checkbox" checked />Enable clustering</label>
+            <label
+                >Cluster radius <output id="cluster-radius-value">5000.00 cm</output
+                ><input
+                    id="cluster-radius"
+                    type="range"
+                    min="100"
+                    max="20000"
+                    step="100"
+                    value="5000"
+            /></label>
+            <label
+                >Marker size<input
+                    id="resource-size"
+                    type="range"
+                    min="1"
+                    max="12"
+                    step="1"
+                    value="5"
+            /></label>
+            <label><input id="size-attenuation" type="checkbox" />Size attenuation</label>
+            <label><input id="resource-glow" type="checkbox" checked />Resource glow</label>
+            <label
+                ><input id="resource-through" type="checkbox" checked />Show through terrain
+                (caves)</label
+            >
+            <div class="buttons">
+                <button id="resources-all">Show all</button
+                ><button id="resources-none">Hide all</button>
+            </div>
+            <div id="resource-options"></div>
+            <div id="resource-summary" class="note" aria-live="polite"></div>
+            <p class="note" data-debug>
+                Recorded XYZ, never surface-clamped. Click a marker for details. Clusters report
+                centroid coordinates.
+            </p>
+            <div id="resource-details" aria-live="polite">No resource selected.</div>
+            <hr />
+            <p class="note">
+                Left drag: orbit the pressed surface · Right drag: pan · Scroll: orthographic zoom /
+                perspective dolly<br />Middle click: World / Camera · Middle drag: dolly<br />WASD: World pan / Camera flight · Shift: faster<br />Touch: one finger orbits; two pan /
+                zoom
+            </p>
+            <label><input id="debug-toggle" type="checkbox" />Show debug</label>
+        </aside>
+        <div id="coordinates">
+            <div id="movement-mode-status">Movement mode: World</div>
+            <div id="cursor-details">Cursor: —</div>
+            <div id="camera-collision-status" role="status"></div>
+        </div>
+        <div id="debug-panel" hidden></div>
+        <div id="loading" role="status">Loading map list…</div>
+        <div id="error" role="alert" hidden>
+            <div id="error-message"></div>
+            <button id="retry">Retry</button>
+        </div>
+        <script src="index.js"></script>
+    </body>
+</html>
