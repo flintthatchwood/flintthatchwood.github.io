@@ -114,8 +114,9 @@ It never selects only the highest floor at each XY.
 
 The optional `cubeModel` link points to a version-3 hierarchy with
 `closed-voxel-partitions-v1`. Its AWM1 patches contain genuinely axis-aligned
-cubes, not triangle geomorphs. Finest occupancy remains the existing 4 m,
-strict-majority result. Coarse 8/16/32/64 m occupancy uses any existing child
+cubes, not triangle geomorphs. Existing publications retain their 4 m
+strict-majority occupancy; new native exports use 1 m triangle intersections.
+Coarse powers-of-two occupancy through 64 m uses any existing child
 solid, preventing repeated-majority erosion of thin barriers. It can thicken
 surfaces and close narrow gaps at distance; it does not rerun source extraction.
 The full 64 m base loads atomically. Internal XY partition walls close the

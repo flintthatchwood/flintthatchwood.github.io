@@ -1,3 +1,6 @@
 node_modules/
 package-lock.json
 .work/
+root/terrain/**/*.awm
+root/terrain/**/*.awp
+root/terrain/**/*.air.gz

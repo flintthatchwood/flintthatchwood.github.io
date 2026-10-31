@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DataLoader } from './data/DataLoader.js';
 import { fetchMapImage } from './map-image.js';
+import { flatMapManifest, flatMapMesh } from './flat-map.js';
 import { groupedMaps, mapKeyFromUrl, mapUrl, orderedMaps } from './map-navigation.js';
 import { MapData } from './data/types.js';
 import { World, type WorldPoint } from './world/World.js';
@@ -104,6 +105,7 @@ export class Viewer {
     private manifest?: TerrainManifest;
     private map?: MapData;
     private texture?: THREE.Texture;
+    private flatMap?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
     private abort?: AbortController;
     private generation = 0;
     private selectedKey = '';
@@ -143,6 +145,7 @@ export class Viewer {
             !status.retry && this.worldModel.meshes.length > 0,
         );
         el('world-model-retry').hidden = !status.retry;
+        this.updateFlatMap();
         if (status.manifest && status.manifest !== this.worldModelManifest) {
             const m = (this.worldModelManifest = status.manifest);
             if (m.statistics.hierarchyVersion === 3) this.updateCubeSizeControl();
@@ -633,6 +636,7 @@ export class Viewer {
         this.world = new World();
         this.layers = [];
         dispose(this.resources);
+        this.clearFlatMap();
         this.texture?.dispose();
         this.texture = undefined;
         this.marker.dispose();
@@ -656,20 +660,6 @@ export class Viewer {
             const info = maps.find((map) => map.key === key);
             if (!info) throw new Error(`Unknown map ${key}`);
             history.replaceState(history.state, '', mapUrl(new URL(location.href), key));
-            const indexUrl = new URL('./terrain/index.json', document.baseURI).href;
-            const index = await json<{ version: number; maps: { mapKey: string; url: string }[] }>(
-                indexUrl,
-                signal,
-            );
-            if (index.version !== 1 || !Array.isArray(index.maps))
-                throw new Error('Invalid terrain index.');
-            const entry = index.maps.find((map) => map.mapKey === key);
-            if (!entry) throw new Error(`No 3D extraction metadata published for ${info.name}.`);
-            const manifestUrl = new URL(entry.url, indexUrl).href;
-            const manifest = await json<TerrainManifest>(manifestUrl, signal);
-            validateManifest(manifest, key);
-            if (!manifest.cubeModel && !manifest.progressiveModel)
-                throw new Error(`No 3D extraction published for ${info.name}.`);
             // This request is abortable, unlike the legacy DataLoader.loadMapByName path.
             const dataUrl =
                 info.dataUrl.startsWith('http') || info.dataUrl.startsWith('/')
@@ -682,6 +672,22 @@ export class Viewer {
             const map = new MapData(raw);
             if (map.mapKey !== key || !map.imageName)
                 throw new Error('Map metadata/image is missing or mismatched.');
+            const indexUrl = new URL('./terrain/index.json', document.baseURI).href;
+            let manifestUrl = indexUrl;
+            let manifest: TerrainManifest;
+            try {
+                const index = await json<{ version: number; maps: { mapKey: string; url: string }[] }>(indexUrl, signal);
+                if (index.version !== 1 || !Array.isArray(index.maps)) throw new Error('Invalid terrain index.');
+                const entry = index.maps.find((item) => item.mapKey === key);
+                if (!entry) throw new Error(`No terrain metadata published for ${info.name}.`);
+                manifestUrl = new URL(entry.url, indexUrl).href;
+                manifest = await json<TerrainManifest>(manifestUrl, signal);
+                validateManifest(manifest, key);
+            } catch (error) {
+                signal.throwIfAborted();
+                manifest = flatMapManifest(key, map.coordinates);
+                manifest.warnings.push(`Terrain metadata unavailable: ${error instanceof Error ? error.message : String(error)}. Showing a flat map.`);
+            }
             const image = await fetchMapImage(
                 new URL(`./images/${map.imageName}`, document.baseURI),
                 signal,
@@ -708,9 +714,12 @@ export class Viewer {
             }
             this.map = map;
             this.manifest = manifest;
+            this.flatMap = flatMapMesh(map.coordinates, manifest, this.texture);
+            this.scene.add(this.flatMap);
+            this.updateFlatMap();
             el('map-title').textContent = info.name;
             el('warning-summary').textContent =
-                '3D extraction only. Unloaded or unavailable geometry remains empty.';
+                'Terrain is streamed from Blob Storage. A flat map is shown when terrain is unavailable.';
             el('warning-details').hidden = manifest.warnings.length === 0;
             el('warning-count').textContent =
                 `${manifest.warnings.length.toLocaleString()} map warnings — full details`;
@@ -732,10 +741,9 @@ export class Viewer {
                 ? new URL(manifest.progressiveModel.url, manifestUrl).href
                 : undefined;
             const representation = el('world-representation') as HTMLSelectElement;
-            representation.value = initialRepresentation(
-                manifest,
-                new URL(location.href).searchParams.get('world'),
-            );
+            representation.value = manifest.cubeModel || manifest.progressiveModel
+                ? initialRepresentation(manifest, new URL(location.href).searchParams.get('world'))
+                : 'cubes';
             el('world-representation-label').hidden =
                 !this.blockModelUrl && !this.progressiveModelUrl;
             for (const option of Array.from(representation.options))
@@ -749,6 +757,7 @@ export class Viewer {
             this.map = undefined;
             this.layers = [];
             dispose(this.resources);
+            this.clearFlatMap();
             this.texture?.dispose();
             this.texture = undefined;
             this.error(error);
@@ -760,6 +769,38 @@ export class Viewer {
             !!this.blockModelUrl &&
             (el('world-representation') as HTMLSelectElement).value === 'cubes'
         );
+    }
+
+    private clearFlatMap(): void {
+        if (!this.flatMap) return;
+        this.scene.remove(this.flatMap);
+        this.flatMap.geometry.dispose();
+        this.flatMap.material.dispose();
+        this.flatMap = undefined;
+    }
+
+    private updateFlatMap(force = false): void {
+        if (!this.flatMap) return;
+        const visible = this.worldModel.meshes.length === 0;
+        if (!force && this.flatMap.visible === visible) return;
+        this.flatMap.visible = visible;
+        this.resources.traverse((object) => {
+            if (!(object instanceof THREE.Points)) return;
+            const positions = object.geometry.getAttribute('position');
+            let elevations = object.geometry.getAttribute('resourceElevation');
+            if (!elevations) {
+                elevations = new THREE.Float32BufferAttribute(
+                    Array.from({ length: positions.count }, (_, i) => positions.getY(i)), 1);
+                object.geometry.setAttribute('resourceElevation', elevations);
+            }
+            for (let i = 0; i < positions.count; i++) positions.setY(i, visible ? 0 : elevations.getX(i));
+            positions.needsUpdate = true;
+            object.geometry.computeBoundingSphere();
+            for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+                material.clippingPlanes = visible ? null : [this.worldModel.clipPlane];
+                material.needsUpdate = true;
+            }
+        });
     }
 
     private updateCubeSizeControl(): void {
@@ -787,7 +828,7 @@ export class Viewer {
         if (!modelUrl || !this.manifest || !this.map) {
             this.worldModel.clear();
             el('world-model-status').textContent =
-                'No 3D geometry available. Unavailable areas remain empty.';
+                'Terrain unavailable. Showing a flat map; recorded resource coordinates are unchanged.';
             el('world-model-retry').hidden = true;
             this.controls.maxPolarAngle = this.movementMode === 'camera' ? Math.PI - 0.001 : Math.PI * 0.495;
         } else {
@@ -873,6 +914,10 @@ export class Viewer {
         const status = el('camera-collision-status');
         status.textContent = '';
         if (this.movementMode !== 'camera') return;
+        if (this.flatMap?.visible) {
+            status.textContent = 'Terrain collision unavailable on the flat map.';
+            return;
+        }
         this.camera.near = Math.min(this.camera.near, 0.1);
         this.camera.updateProjectionMatrix();
         const requested = this.camera.position.clone().sub(this.lastCameraPosition);
@@ -904,6 +949,7 @@ export class Viewer {
     private surfaceHit(ray: THREE.Raycaster): THREE.Intersection | undefined {
         if (!this.map || !this.manifest) return;
         const modelMeshes = new Set(this.worldModel.meshes);
+        if (this.flatMap?.visible) modelMeshes.add(this.flatMap);
         return ray.intersectObjects([...modelMeshes], false).find((hit) => {
             const world = this.toWorld(hit.point),
                 c = this.map!.coordinates;
@@ -1063,6 +1109,7 @@ export class Viewer {
                 this.updateVisibility();
             });
         }
+        this.updateFlatMap(true);
         this.appearance();
     }
 

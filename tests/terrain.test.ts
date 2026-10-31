@@ -1,7 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { initialRepresentation, validateManifest, type TerrainManifest } from '../src/terrain.js';
 
 function fixture(): TerrainManifest {
@@ -71,15 +69,9 @@ test('3D map metadata rejects old heightfields and malformed bounds or links', (
     }
 });
 
-test('all published maps contain only bounds and 3D links, without fallback height tiles', () => {
-    const root = join('root', 'terrain');
-    const index = JSON.parse(readFileSync(join(root, 'index.json'), 'utf8')) as {
-        maps: { mapKey: string; url: string }[];
-    };
-    for (const entry of index.maps) {
-        const path = join(root, entry.url);
-        const manifest = JSON.parse(readFileSync(path, 'utf8')) as TerrainManifest;
-        validateManifest(manifest, entry.mapKey);
-        assert.ok(!readdirSync(dirname(path)).some((name) => /^\d+-\d+\.f32$/.test(name)), path);
-    }
+test('terrain manifests remain metadata-only without requiring generated files in the checkout', () => {
+    const manifest = fixture();
+    validateManifest(JSON.parse(JSON.stringify(manifest)), 'Island');
+    assert.ok(!('tiles' in manifest));
+    assert.ok(!('spacing' in manifest));
 });

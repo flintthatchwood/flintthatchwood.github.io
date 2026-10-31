@@ -86,7 +86,7 @@ test('panel diagnostics are debug-only without hiding actionable failures', () =
     assert.match(viewer, /classList.toggle\('show-debug', checked\('debug-toggle'\)\)/);
 });
 
-test('viewer only loads and picks extracted 3D geometry, never heightfield tiles', () => {
+test('viewer uses extracted geometry or an explicit flat map, never sampled heightfield tiles', () => {
     for (const retired of [
         'decodeHeights',
         'terrainGeometry',
@@ -100,7 +100,11 @@ test('viewer only loads and picks extracted 3D geometry, never heightfield tiles
     ])
         assert.ok(!viewer.includes(retired), retired);
     assert.match(viewer, /intersectObjects\(\[\.\.\.modelMeshes\], false\)/);
-    assert.match(viewer, /No 3D extraction published/);
+    assert.match(viewer, /this.flatMap = flatMapMesh/);
+    assert.match(viewer, /const visible = this.worldModel.meshes.length === 0/);
+    assert.match(viewer, /positions.setY\(i, visible \? 0 : elevations.getX\(i\)\)/);
+    assert.ok(!viewer.includes('this.resources.scale.y = 0'));
+    assert.match(viewer, /Terrain metadata unavailable/);
     assert.ok(!html.includes('the heightfield fills uncovered'));
 });
 

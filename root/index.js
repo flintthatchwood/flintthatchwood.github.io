@@ -24137,6 +24137,62 @@
     return { kind: "image", blob };
   }
 
+  // src/terrain.ts
+  function validateManifest(manifest, mapKey) {
+    if (manifest.version !== 2 || manifest.mapKey !== mapKey || manifest.heightUnits !== "centimeters" || ![
+      manifest.originX,
+      manifest.originY,
+      manifest.maxX,
+      manifest.maxY,
+      manifest.minZ,
+      manifest.maxZ
+    ].every(Number.isFinite) || manifest.originX >= manifest.maxX || manifest.originY >= manifest.maxY || manifest.minZ >= manifest.maxZ || !Array.isArray(manifest.warnings) || !manifest.warnings.every((warning) => typeof warning === "string") || "tiles" in manifest || "spacing" in manifest || manifest.progressiveModel?.default !== void 0 && typeof manifest.progressiveModel.default !== "boolean" || [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.progressiveModel].some(
+      (link) => link !== void 0 && (link === null || typeof link.url !== "string" || !link.url.trim())
+    ))
+      throw new Error(`Invalid 3D map metadata for ${mapKey}.`);
+  }
+  function initialRepresentation(manifest, requested) {
+    if ((requested === "triangles" || requested === "progressive" || requested === "mesh") && manifest.progressiveModel)
+      return "triangles";
+    if (manifest.cubeModel) return "cubes";
+    if (manifest.progressiveModel) return "triangles";
+    throw new Error(`No 3D extraction published for ${manifest.mapKey}.`);
+  }
+
+  // src/flat-map.ts
+  function flatMapManifest(mapKey, extent) {
+    const manifest = {
+      version: 2,
+      mapKey,
+      heightUnits: "centimeters",
+      originX: extent.minX,
+      originY: extent.minY,
+      maxX: extent.maxX,
+      maxY: extent.maxY,
+      minZ: 0,
+      maxZ: 1,
+      warnings: []
+    };
+    validateManifest(manifest, mapKey);
+    return manifest;
+  }
+  function flatMapMesh(extent, manifest, texture) {
+    flatMapManifest(manifest.mapKey, extent);
+    const geometry = new PlaneGeometry((extent.maxX - extent.minX) / 100, (extent.maxY - extent.minY) / 100);
+    geometry.rotateX(-Math.PI / 2);
+    const mesh = new Mesh(geometry, new MeshBasicMaterial({
+      map: texture,
+      color: texture ? 16777215 : 5400439,
+      side: DoubleSide
+    }));
+    mesh.position.set(
+      (extent.minX + extent.maxX - manifest.originX - manifest.maxX) / 200,
+      0,
+      (extent.minY + extent.maxY - manifest.originY - manifest.maxY) / 200
+    );
+    return mesh;
+  }
+
   // src/map-navigation.ts
   var canonKeys = [
     "TheIsland_WP",
@@ -25901,28 +25957,6 @@ varying vec3 worldColorPosition;`
     return nextDistance;
   }
 
-  // src/terrain.ts
-  function validateManifest(manifest, mapKey) {
-    if (manifest.version !== 2 || manifest.mapKey !== mapKey || manifest.heightUnits !== "centimeters" || ![
-      manifest.originX,
-      manifest.originY,
-      manifest.maxX,
-      manifest.maxY,
-      manifest.minZ,
-      manifest.maxZ
-    ].every(Number.isFinite) || manifest.originX >= manifest.maxX || manifest.originY >= manifest.maxY || manifest.minZ >= manifest.maxZ || !Array.isArray(manifest.warnings) || !manifest.warnings.every((warning) => typeof warning === "string") || "tiles" in manifest || "spacing" in manifest || manifest.progressiveModel?.default !== void 0 && typeof manifest.progressiveModel.default !== "boolean" || [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.progressiveModel].some(
-      (link) => link !== void 0 && (link === null || typeof link.url !== "string" || !link.url.trim())
-    ))
-      throw new Error(`Invalid 3D map metadata for ${mapKey}.`);
-  }
-  function initialRepresentation(manifest, requested) {
-    if ((requested === "triangles" || requested === "progressive" || requested === "mesh") && manifest.progressiveModel)
-      return "triangles";
-    if (manifest.cubeModel) return "cubes";
-    if (manifest.progressiveModel) return "triangles";
-    throw new Error(`No 3D extraction published for ${manifest.mapKey}.`);
-  }
-
   // src/viewer.ts
   var el = (id) => {
     const result = document.getElementById(id);
@@ -26003,6 +26037,7 @@ varying vec3 worldColorPosition;`
           !status.retry && this.worldModel.meshes.length > 0
         );
         el("world-model-retry").hidden = !status.retry;
+        this.updateFlatMap();
         if (status.manifest && status.manifest !== this.worldModelManifest) {
           const m = this.worldModelManifest = status.manifest;
           if (m.statistics.hierarchyVersion === 3) this.updateCubeSizeControl();
@@ -26460,6 +26495,7 @@ varying vec3 worldColorPosition;`
       this.world = new World();
       this.layers = [];
       dispose(this.resources);
+      this.clearFlatMap();
       this.texture?.dispose();
       this.texture = void 0;
       this.marker.dispose();
@@ -26483,20 +26519,6 @@ varying vec3 worldColorPosition;`
         const info = maps.find((map2) => map2.key === key);
         if (!info) throw new Error(`Unknown map ${key}`);
         history.replaceState(history.state, "", mapUrl(new URL(location.href), key));
-        const indexUrl = new URL("./terrain/index.json", document.baseURI).href;
-        const index = await freshJson(
-          indexUrl,
-          signal
-        );
-        if (index.version !== 1 || !Array.isArray(index.maps))
-          throw new Error("Invalid terrain index.");
-        const entry = index.maps.find((map2) => map2.mapKey === key);
-        if (!entry) throw new Error(`No 3D extraction metadata published for ${info.name}.`);
-        const manifestUrl = new URL(entry.url, indexUrl).href;
-        const manifest = await freshJson(manifestUrl, signal);
-        validateManifest(manifest, key);
-        if (!manifest.cubeModel && !manifest.progressiveModel)
-          throw new Error(`No 3D extraction published for ${info.name}.`);
         const dataUrl = info.dataUrl.startsWith("http") || info.dataUrl.startsWith("/") ? info.dataUrl : `./data/${info.dataUrl.replace(/^\.\//, "")}`;
         const raw = await freshJson(
           new URL(dataUrl, document.baseURI).href,
@@ -26505,6 +26527,22 @@ varying vec3 worldColorPosition;`
         const map = new MapData(raw);
         if (map.mapKey !== key || !map.imageName)
           throw new Error("Map metadata/image is missing or mismatched.");
+        const indexUrl = new URL("./terrain/index.json", document.baseURI).href;
+        let manifestUrl = indexUrl;
+        let manifest;
+        try {
+          const index = await freshJson(indexUrl, signal);
+          if (index.version !== 1 || !Array.isArray(index.maps)) throw new Error("Invalid terrain index.");
+          const entry = index.maps.find((item) => item.mapKey === key);
+          if (!entry) throw new Error(`No terrain metadata published for ${info.name}.`);
+          manifestUrl = new URL(entry.url, indexUrl).href;
+          manifest = await freshJson(manifestUrl, signal);
+          validateManifest(manifest, key);
+        } catch (error) {
+          signal.throwIfAborted();
+          manifest = flatMapManifest(key, map.coordinates);
+          manifest.warnings.push(`Terrain metadata unavailable: ${error instanceof Error ? error.message : String(error)}. Showing a flat map.`);
+        }
         const image = await fetchMapImage(
           new URL(`./images/${map.imageName}`, document.baseURI),
           signal
@@ -26530,8 +26568,11 @@ varying vec3 worldColorPosition;`
         }
         this.map = map;
         this.manifest = manifest;
+        this.flatMap = flatMapMesh(map.coordinates, manifest, this.texture);
+        this.scene.add(this.flatMap);
+        this.updateFlatMap();
         el("map-title").textContent = info.name;
-        el("warning-summary").textContent = "3D extraction only. Unloaded or unavailable geometry remains empty.";
+        el("warning-summary").textContent = "Terrain is streamed from Blob Storage. A flat map is shown when terrain is unavailable.";
         el("warning-details").hidden = manifest.warnings.length === 0;
         el("warning-count").textContent = `${manifest.warnings.length.toLocaleString()} map warnings \u2014 full details`;
         const warnings = document.createDocumentFragment();
@@ -26548,10 +26589,7 @@ varying vec3 worldColorPosition;`
         this.blockModelUrl = manifest.cubeModel ? new URL(manifest.cubeModel.url, manifestUrl).href : void 0;
         this.progressiveModelUrl = manifest.progressiveModel ? new URL(manifest.progressiveModel.url, manifestUrl).href : void 0;
         const representation = el("world-representation");
-        representation.value = initialRepresentation(
-          manifest,
-          new URL(location.href).searchParams.get("world")
-        );
+        representation.value = manifest.cubeModel || manifest.progressiveModel ? initialRepresentation(manifest, new URL(location.href).searchParams.get("world")) : "cubes";
         el("world-representation-label").hidden = !this.blockModelUrl && !this.progressiveModelUrl;
         for (const option of Array.from(representation.options))
           option.disabled = option.value === "cubes" ? !this.blockModelUrl : !this.progressiveModelUrl;
@@ -26564,6 +26602,7 @@ varying vec3 worldColorPosition;`
         this.map = void 0;
         this.layers = [];
         dispose(this.resources);
+        this.clearFlatMap();
         this.texture?.dispose();
         this.texture = void 0;
         this.error(error);
@@ -26571,6 +26610,38 @@ varying vec3 worldColorPosition;`
     }
     get blockMode() {
       return !!this.blockModelUrl && el("world-representation").value === "cubes";
+    }
+    clearFlatMap() {
+      if (!this.flatMap) return;
+      this.scene.remove(this.flatMap);
+      this.flatMap.geometry.dispose();
+      this.flatMap.material.dispose();
+      this.flatMap = void 0;
+    }
+    updateFlatMap(force = false) {
+      if (!this.flatMap) return;
+      const visible = this.worldModel.meshes.length === 0;
+      if (!force && this.flatMap.visible === visible) return;
+      this.flatMap.visible = visible;
+      this.resources.traverse((object2) => {
+        if (!(object2 instanceof Points)) return;
+        const positions = object2.geometry.getAttribute("position");
+        let elevations = object2.geometry.getAttribute("resourceElevation");
+        if (!elevations) {
+          elevations = new Float32BufferAttribute(
+            Array.from({ length: positions.count }, (_, i) => positions.getY(i)),
+            1
+          );
+          object2.geometry.setAttribute("resourceElevation", elevations);
+        }
+        for (let i = 0; i < positions.count; i++) positions.setY(i, visible ? 0 : elevations.getX(i));
+        positions.needsUpdate = true;
+        object2.geometry.computeBoundingSphere();
+        for (const material of Array.isArray(object2.material) ? object2.material : [object2.material]) {
+          material.clippingPlanes = visible ? null : [this.worldModel.clipPlane];
+          material.needsUpdate = true;
+        }
+      });
     }
     updateCubeSizeControl() {
       const size = this.worldModelManifest?.cellSizeCm;
@@ -26590,7 +26661,7 @@ varying vec3 worldColorPosition;`
       const modelUrl = el("world-representation").value === "triangles" ? this.progressiveModelUrl : this.blockModelUrl;
       if (!modelUrl || !this.manifest || !this.map) {
         this.worldModel.clear();
-        el("world-model-status").textContent = "No 3D geometry available. Unavailable areas remain empty.";
+        el("world-model-status").textContent = "Terrain unavailable. Showing a flat map; recorded resource coordinates are unchanged.";
         el("world-model-retry").hidden = true;
         this.controls.maxPolarAngle = this.movementMode === "camera" ? Math.PI - 1e-3 : Math.PI * 0.495;
       } else {
@@ -26670,6 +26741,10 @@ varying vec3 worldColorPosition;`
       const status = el("camera-collision-status");
       status.textContent = "";
       if (this.movementMode !== "camera") return;
+      if (this.flatMap?.visible) {
+        status.textContent = "Terrain collision unavailable on the flat map.";
+        return;
+      }
       this.camera.near = Math.min(this.camera.near, 0.1);
       this.camera.updateProjectionMatrix();
       const requested = this.camera.position.clone().sub(this.lastCameraPosition);
@@ -26699,6 +26774,7 @@ varying vec3 worldColorPosition;`
     surfaceHit(ray) {
       if (!this.map || !this.manifest) return;
       const modelMeshes = new Set(this.worldModel.meshes);
+      if (this.flatMap?.visible) modelMeshes.add(this.flatMap);
       return ray.intersectObjects([...modelMeshes], false).find((hit) => {
         const world = this.toWorld(hit.point), c = this.map.coordinates;
         return world.x >= c.minX && world.x <= c.maxX && world.y >= c.minY && world.y <= c.maxY && this.worldModel.clipPlane.distanceToPoint(hit.point) >= 0;
@@ -26841,6 +26917,7 @@ varying vec3 worldColorPosition;`
           this.updateVisibility();
         });
       }
+      this.updateFlatMap(true);
       this.appearance();
     }
     updateVisibility(clearSelection = true) {
