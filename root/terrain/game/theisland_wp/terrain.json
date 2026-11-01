@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "mapKey": "TheIsland_WP",
+  "heightUnits": "centimeters",
+  "originX": -342900,
+  "originY": -342900,
+  "maxX": 342900,
+  "maxY": 342900,
+  "minZ": -45980.00390625,
+  "maxZ": 46803.75,
+  "warnings": [],
+  "sourceMapKey": "TheIsland_WP",
+  "sourceMapPath": "ShooterGame/Content/Maps/TheIslandSubMaps/TheIsland_WP.umap",
+  "sourceMod": null,
+  "sourceLayer": null,
+  "layerMinZ": null,
+  "layerMaxZ": null,
+  "strictCollision": true,
+  "cubeModel": {
+    "url": "cubes.json"
+  },
+  "publication": {
+    "complete": true,
+    "finestCellSizeCm": 100,
+    "version": 1
+  }
+}
