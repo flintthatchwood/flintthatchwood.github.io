@@ -248,34 +248,46 @@ export class ProgressiveWorld {
         if (cheap && this.fits(cheap.node.children!, [cheap.node]))
             this.replace(cheap.node.children!, [cheap.node], true);
         else {
-            const next = refine.find((p) =>
-                this.fits(
-                    [p.patch.node.id],
-                    p.patch.node.children!.map((id) => this.nodes.get(id)!),
-                ),
-            );
-            if (next)
-                this.replace(
-                    [next.patch.node.id],
-                    next.patch.node.children!.map((id) => this.nodes.get(id)!),
-                    false,
-                );
-            else if (refine.length) {
-                const reclaim = coarsen.find(
-                    (p) => p.error < refine[0].error * 0.5 && this.fits(p.node.children!, [p.node]),
-                );
-                if (reclaim) this.replace(reclaim.node.children!, [reclaim.node], true);
+            for (const candidate of refine) {
+                const node = candidate.patch.node;
+                const children = node.children!.map((id) => this.nodes.get(id)!);
+                if (this.fits([node.id], children)) {
+                    this.replace([node.id], children, false);
+                    break;
+                }
+                const reclaimed: WorldTile[] = [];
+                let reclaim: WorldTile | undefined;
+                for (const parent of coarsen) {
+                    if (parent.error >= candidate.error * 0.5 || parent.node.children!.includes(node.id) ||
+                        !this.fits(parent.node.children!, [parent.node], reclaimed)) continue;
+                    reclaimed.push(parent.node);
+                    if (this.fits([node.id], children, reclaimed)) {
+                        reclaim = reclaimed[0];
+                        break;
+                    }
+                }
+                // Only release detail when the resulting frontier can actually admit the higher-priority patch.
+                if (reclaim) {
+                    this.replace(reclaim.children!, [reclaim], true);
+                    break;
+                }
             }
         }
         this.selectionMs = performance.now() - started;
         this.emit();
     }
-    private fits(remove: string[], add: WorldTile[]): boolean {
+    private fits(remove: string[], add: WorldTile[], coarsened: WorldTile[] = []): boolean {
         let triangles = 0,
             bytes = 0;
+        const replaced = new Set(coarsened.flatMap(node => node.children!));
         for (const p of this.active.values()) {
+            if (replaced.has(p.node.id)) continue;
             bytes += worldGeometryBytes(p.node.lods[0]);
             if (!remove.includes(p.node.id)) triangles += p.node.lods[0].triangles;
+        }
+        for (const node of coarsened) {
+            bytes += worldGeometryBytes(node.lods[0]);
+            if (!remove.includes(node.id)) triangles += node.lods[0].triangles;
         }
         for (const node of add) {
             triangles += node.lods[0].triangles;

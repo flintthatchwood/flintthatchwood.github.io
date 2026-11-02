@@ -171,12 +171,18 @@ do not change it. Depth testing hides fields behind opaque terrain, while
 disabled depth writes avoid making translucent fields occlude other geometry.
 Cutaway still applies, and the cutaway range includes authored sky fields.
 Boundary loading failures have their own visible status and retry control.
+The normal **Show world barriers** checkbox hides or shows this independent layer
+without reloading terrain. Barriers never participate in terrain unions, picking
+or camera collision.
 
 ### Shared hierarchy streaming
 
 CPU selection traverses the active frontier, not all source triangles, at most
 every 50 ms. Projected error uses 2-pixel refine / 1-pixel coarsen hysteresis.
 Lower-error sibling groups can coarsen to release budget for higher-error views.
+Budget reclamation first verifies that one or more coarsenings can admit the
+higher-priority refinement, including transient residency. Unreachable refinements
+cannot repeatedly evict and reload otherwise useful detail at a stationary camera.
 Only one atomic replacement group is in flight, with at most two downloads.
 The 1,000,000 surface-triangle limit remains unchanged; the 96 MiB geometry budget
 also includes replacement patches waiting for activation.

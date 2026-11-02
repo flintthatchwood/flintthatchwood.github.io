@@ -470,6 +470,7 @@ export class Viewer {
             'terrain-opacity',
             'shading',
             'wireframe',
+            'show-world-boundaries',
             'debug-toggle',
         ])
             input(id).addEventListener('input', () => this.appearance());
@@ -638,6 +639,7 @@ export class Viewer {
         this.worldBoundaries.clear();
         this.boundaryModelUrl = undefined;
         this.worldBoundaryManifest = undefined;
+        el('world-boundary-toggle').hidden = true;
         el('world-boundary-status').hidden = true;
         el('world-boundary-retry').hidden = true;
         this.blockModelUrl = undefined;
@@ -753,6 +755,7 @@ export class Viewer {
             this.boundaryModelUrl = manifest.boundaryModel && manifestUrl
                 ? new URL(manifest.boundaryModel.url, manifestUrl).href
                 : undefined;
+            el('world-boundary-toggle').hidden = !this.boundaryModelUrl;
             this.updateWorldModel();
         } catch (error) {
             if (generation !== this.generation) return;
@@ -1170,6 +1173,7 @@ export class Viewer {
             slopes: false,
             cutHeightCm: cutHeight * 100,
         });
+        this.worldBoundaries.group.visible = checked('show-world-boundaries');
         el('terrain-opacity-value').textContent = `${number(value('terrain-opacity') * 100)}%`;
         el('debug-panel').hidden = !checked('debug-toggle');
         document.body.classList.toggle('show-debug', checked('debug-toggle'));

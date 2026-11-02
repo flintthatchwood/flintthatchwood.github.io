@@ -25151,33 +25151,43 @@ vec3 worldMorphPosition() {
       if (cheap && this.fits(cheap.node.children, [cheap.node]))
         this.replace(cheap.node.children, [cheap.node], true);
       else {
-        const next = refine.find(
-          (p) => this.fits(
-            [p.patch.node.id],
-            p.patch.node.children.map((id) => this.nodes.get(id))
-          )
-        );
-        if (next)
-          this.replace(
-            [next.patch.node.id],
-            next.patch.node.children.map((id) => this.nodes.get(id)),
-            false
-          );
-        else if (refine.length) {
-          const reclaim = coarsen.find(
-            (p) => p.error < refine[0].error * 0.5 && this.fits(p.node.children, [p.node])
-          );
-          if (reclaim) this.replace(reclaim.node.children, [reclaim.node], true);
+        for (const candidate of refine) {
+          const node = candidate.patch.node;
+          const children = node.children.map((id) => this.nodes.get(id));
+          if (this.fits([node.id], children)) {
+            this.replace([node.id], children, false);
+            break;
+          }
+          const reclaimed = [];
+          let reclaim;
+          for (const parent of coarsen) {
+            if (parent.error >= candidate.error * 0.5 || parent.node.children.includes(node.id) || !this.fits(parent.node.children, [parent.node], reclaimed)) continue;
+            reclaimed.push(parent.node);
+            if (this.fits([node.id], children, reclaimed)) {
+              reclaim = reclaimed[0];
+              break;
+            }
+          }
+          if (reclaim) {
+            this.replace(reclaim.children, [reclaim], true);
+            break;
+          }
         }
       }
       this.selectionMs = performance.now() - started;
       this.emit();
     }
-    fits(remove, add) {
+    fits(remove, add, coarsened = []) {
       let triangles = 0, bytes = 0;
+      const replaced = new Set(coarsened.flatMap((node) => node.children));
       for (const p of this.active.values()) {
+        if (replaced.has(p.node.id)) continue;
         bytes += worldGeometryBytes(p.node.lods[0]);
         if (!remove.includes(p.node.id)) triangles += p.node.lods[0].triangles;
+      }
+      for (const node of coarsened) {
+        bytes += worldGeometryBytes(node.lods[0]);
+        if (!remove.includes(node.id)) triangles += node.lods[0].triangles;
       }
       for (const node of add) {
         triangles += node.lods[0].triangles;
@@ -26564,6 +26574,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         "terrain-opacity",
         "shading",
         "wireframe",
+        "show-world-boundaries",
         "debug-toggle"
       ])
         input(id).addEventListener("input", () => this.appearance());
@@ -26722,6 +26733,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.worldBoundaries.clear();
       this.boundaryModelUrl = void 0;
       this.worldBoundaryManifest = void 0;
+      el("world-boundary-toggle").hidden = true;
       el("world-boundary-status").hidden = true;
       el("world-boundary-retry").hidden = true;
       this.blockModelUrl = void 0;
@@ -26829,6 +26841,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         el("loading").hidden = true;
         this.blockModelUrl = manifest.cubeModel && manifestUrl ? new URL(manifest.cubeModel.url, manifestUrl).href : void 0;
         this.boundaryModelUrl = manifest.boundaryModel && manifestUrl ? new URL(manifest.boundaryModel.url, manifestUrl).href : void 0;
+        el("world-boundary-toggle").hidden = !this.boundaryModelUrl;
         this.updateWorldModel();
       } catch (error) {
         if (generation !== this.generation) return;
@@ -27213,6 +27226,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         slopes: false,
         cutHeightCm: cutHeight * 100
       });
+      this.worldBoundaries.group.visible = checked("show-world-boundaries");
       el("terrain-opacity-value").textContent = `${displayNumber(value("terrain-opacity") * 100)}%`;
       el("debug-panel").hidden = !checked("debug-toggle");
       document.body.classList.toggle("show-debug", checked("debug-toggle"));

@@ -124,6 +124,17 @@ test('resource markers and glow use fixed screen sizes without an attenuation co
     assert.match(viewer, /layer\.glow\.material\.size = value\('resource-size'\) \* 2\.5/);
 });
 
+test('world barriers have an independent non-debug visibility toggle and never enter terrain camera collision', () => {
+    assert.match(html, /id="show-world-boundaries" type="checkbox" checked/);
+    assert.match(viewer, /'show-world-boundaries',/);
+    assert.match(viewer, /worldBoundaries\.group\.visible = checked\('show-world-boundaries'\)/);
+    const collision = viewer.slice(viewer.indexOf('private enforceCameraCollision():'), viewer.indexOf('private viewRay('));
+    assert.match(collision, /const meshes = this\.worldModel\.meshes/);
+    assert.ok(!collision.includes('worldBoundaries'));
+    const toggle = html.match(/<label id="world-boundary-toggle"[^>]*>/)![0];
+    assert.ok(!toggle.includes('data-debug'));
+});
+
 test('clustering controls follow the resource list and summary', () => {
     const list = html.indexOf('id="resource-options"');
     const summary = html.indexOf('id="resource-summary"');

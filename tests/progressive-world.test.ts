@@ -532,3 +532,123 @@ test('a failed coarsening request does not retry every selection tick', async ()
     assert.equal(layer.meshes.length, 1);
     layer.clear();
 });
+
+for (const constraint of ['triangles', 'bytes']) {
+    test(`a stationary camera never reclaims detail for a refinement that cannot fit the ${constraint} budget`, async () => {
+        const m = fixture();
+        const template = m.tiles[0];
+        m.roots = ['high', 'low'];
+        m.tiles = ['high', 'high-a', 'high-b', 'low', 'low-a', 'low-b'].map((id) => ({
+            ...template,
+            id,
+            children: id.includes('-') ? [] : [`${id}-a`, `${id}-b`],
+            lods: [
+                {
+                    ...template.lods[0],
+                    url: id + '.awp',
+                    triangles: id.startsWith('high-') && constraint === 'triangles' ? 600_000 : 1,
+                    vertices: id.startsWith('high-') && constraint === 'bytes' ? 1_000_000 : 3,
+                    maxErrorCm: id === 'high' ? 1000 : id === 'low' ? 100 : 0,
+                },
+            ],
+        }));
+        const requested: string[] = [];
+        const layer = new WorldModelLayer(
+            () => undefined,
+            async (url) => {
+                const path = new URL(String(url)).pathname;
+                if (path.endsWith('.json')) return new Response(JSON.stringify(m));
+                const id = path.slice(1, -4);
+                requested.push(id);
+                return new Response(
+                    binary(id.endsWith('-a') ? 'a' : id.endsWith('-b') ? 'b' : 'root'),
+                );
+            },
+        );
+        await layer.enable(context);
+        await until(() => layer.meshes.length === 2);
+        const steady = camera(10);
+        for (let tick = 0; tick < 40; tick++) {
+            layer.animate(1000 + tick * 500);
+            layer.update(steady, new THREE.Vector3(), 800);
+            await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        assert.deepEqual(requested, ['high', 'low', 'low-a', 'low-b']);
+        assert.equal(layer.meshes.length, 3);
+        layer.clear();
+    });
+}
+
+test('budget reclamation plans multiple lower-priority coarsenings before refining and then settles', async () => {
+    const m = fixture();
+    m.roots = ['high', 'low', 'other'];
+    m.bounds = { ...box, maxX: 10100 };
+    const template = m.tiles[0];
+    m.tiles = m.roots.flatMap((root) =>
+        [root, root + '-a', root + '-b'].map((id) => {
+            const origin = root === 'high' ? 10000 : root === 'other' ? 200 : 0;
+            return {
+                ...template,
+                id,
+                bounds: { ...box, minX: origin, maxX: origin + 100 },
+                children: id === root ? [root + '-a', root + '-b'] : [],
+                lods: [
+                    {
+                        ...template.lods[0],
+                        url: id + '.awp',
+                        triangles: id === root ? 1 : root === 'high' ? 475_000 : 50_000,
+                        maxErrorCm: id === root ? (root === 'high' ? 50 : 100) : 0,
+                    },
+                ],
+            };
+        }),
+    );
+    const requested: string[] = [];
+    const layer = new WorldModelLayer(
+        () => undefined,
+        async (url) => {
+            const path = new URL(String(url)).pathname;
+            if (path.endsWith('.json')) return new Response(JSON.stringify(m));
+            const id = path.slice(1, -4);
+            requested.push(id);
+            const node = m.tiles.find((node) => node.id === id)!;
+            const count = node.lods[0].triangles;
+            const data = new ArrayBuffer(88 + count * 13);
+            const v = new DataView(data);
+            [0x31505741, 3, count, 0].forEach((value, i) => v.setUint32(i * 4, value, true));
+            const points = [0, 0, 100, 100, 0, 100, 0, 100, 100];
+            points.forEach((value, i) => {
+                const position = value + (i % 3 === 0 ? node.bounds.minX : 0);
+                v.setFloat32(16 + i * 4, position, true);
+                v.setFloat32(52 + count * 13 + i * 4, position, true);
+            });
+            for (let i = 0; i < count; i++) {
+                v.setUint32(52 + i * 12 + 4, 1, true);
+                v.setUint32(52 + i * 12 + 8, 2, true);
+            }
+            return new Response(data);
+        },
+    );
+    await layer.enable({ ...context, mapBounds: m.bounds });
+    await until(() => layer.meshes.length === 3);
+    const nearLow = camera(10);
+    for (let tick = 0; tick < 8; tick++) {
+        layer.animate(1000 + tick * 500);
+        layer.update(nearLow, new THREE.Vector3(), 800);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.equal(layer.meshes.length, 5);
+    const nearHigh = camera(10);
+    nearHigh.position.x += 100;
+    nearHigh.lookAt(100.5, 1, 0.5);
+    nearHigh.updateMatrixWorld();
+    for (let tick = 0; tick < 30; tick++) {
+        layer.animate(10000 + tick * 500);
+        layer.update(nearHigh, new THREE.Vector3(100, 0, 0), 800);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    assert.equal(layer.meshes.length, 4);
+    assert.deepEqual(requested.slice(-4), ['low', 'other', 'high-a', 'high-b']);
+    assert.equal(requested.length, 11);
+    layer.clear();
+});
