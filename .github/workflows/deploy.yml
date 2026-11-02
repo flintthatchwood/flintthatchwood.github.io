@@ -33,6 +33,13 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      - name: List published files and sizes
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath './root' -Recurse -Force |
+            Sort-Object FullName |
+            Select-Object FullName, Length |
+            Format-Table -AutoSize -Wrap
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
