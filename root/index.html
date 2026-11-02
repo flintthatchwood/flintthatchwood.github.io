@@ -262,10 +262,15 @@
                     <button id="camera-go">Go to ccc</button>
                 </div>
             </details>
+            <label id="near-cube-size-label" data-debug hidden>
+                Near cube minimum <output id="near-cube-size-value" for="near-cube-size">1× (loading resolution)</output>
+                <input id="near-cube-size" type="range" min="0" max="6" step="1" value="0" aria-describedby="near-cube-size-note" />
+                <span id="near-cube-size-note" class="note">Smallest nearby cube size. Larger values show coarser meshes.</span>
+            </label>
             <label id="cube-size-label" data-debug hidden>
-                Far cube target <output id="cube-size-value">4× (loading resolution)</output>
-                <input id="cube-size" type="range" min="0" max="6" step="1" value="2" />
-                <span id="cube-size-note" class="note">Nearby resolution comes from the map export. The complete coarse base stays loaded.</span>
+                Far cube target <output id="cube-size-value" for="cube-size">4× (loading resolution)</output>
+                <input id="cube-size" type="range" min="0" max="6" step="1" value="2" aria-describedby="cube-size-note" />
+                <span id="cube-size-note" class="note">Far is never smaller than Near. The complete coarse base stays loaded; detail is budget-limited.</span>
             </label>
             <p id="world-model-status" class="note" role="status" data-debug>No world model loaded.</p>
             <button id="world-model-retry" hidden>Retry world model</button>

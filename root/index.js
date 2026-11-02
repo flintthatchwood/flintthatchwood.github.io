@@ -24978,6 +24978,17 @@
 
   // src/progressive-world.ts
   var MORPH_SECONDS = 0.25;
+  function cubeSizeFactors(near, far, changed) {
+    const factors = [1, 2, 4, 8, 16, 32, 64];
+    if (!factors.includes(near)) throw new Error("Invalid near cube size factor.");
+    if (!factors.includes(far)) throw new Error("Invalid far cube size factor.");
+    if (near > far) {
+      if (changed === "near") far = near;
+      else if (changed === "far") near = far;
+      else throw new Error("Near cube minimum cannot exceed far cube target.");
+    }
+    return { near, far };
+  }
   function morphWeight(start, direction, time) {
     const progress = MathUtils.clamp((time - start) / MORPH_SECONDS, 0, 1);
     return direction > 0 ? progress : 1 - progress;
@@ -25039,7 +25050,7 @@ vec3 worldMorphPosition() {
       this.initialized = false;
       this.disposed = false;
       this.selectionMs = 0;
-      this.cubeSizeFactor = 4;
+      this.cubeSizes = { near: 1, far: 4 };
       this.nodes = new Map(manifest.tiles.map((node) => [node.id, node]));
       for (const node of manifest.tiles)
         for (const child of node.children ?? []) this.parents.set(child, node);
@@ -25047,9 +25058,8 @@ vec3 worldMorphPosition() {
     get cubes() {
       return this.manifest.statistics.hierarchyVersion === 3;
     }
-    setCubeSizeFactor(factor) {
-      if (![1, 2, 4, 8, 16, 32, 64].includes(factor)) throw new Error("Invalid far cube size factor.");
-      this.cubeSizeFactor = factor;
+    setCubeSizeFactors(near, far) {
+      this.cubeSizes = cubeSizeFactors(near, far);
     }
     get meshes() {
       return [...this.active.values()].flatMap((p) => p.seam ? [p.mesh, p.seam] : [p.mesh]);
@@ -25118,7 +25128,7 @@ vec3 worldMorphPosition() {
         const visible = frustum.intersectsBox(box);
         if (cubes && visible) {
           const distance = camera instanceof OrthographicCamera ? Math.hypot(box.distanceToPoint(focus), worldUnitsPerPixel(camera, height, 1) * height / 2) : box.distanceToPoint(camera.position);
-          const target = this.manifest.cellSizeCm * (distance < 750 ? 1 : this.cubeSizeFactor);
+          const target = this.manifest.cellSizeCm * (distance < 750 ? this.cubeSizes.near : this.cubeSizes.far);
           return node.lods[0].cubeSizeCm > target ? 3 + node.lods[0].cubeSizeCm / target / (1 + distance / 1e3) : 0.5;
         }
         return visible ? node.lods[0].maxErrorCm / 100 * Math.max(1, exaggeration) / worldUnitsPerPixel(camera, height, Math.max(1, box.distanceToPoint(camera.position))) : 0;
@@ -25328,7 +25338,7 @@ vec3 worldMorphPosition() {
       );
       this.status({
         retry: !!this.error,
-        text: `${this.cubes ? "Cubes" : "Triangles"}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` + (this.cubes ? `${displayNumber(this.manifest.cellSizeCm / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizeFactor / 100)} m. Complete coarse coverage retained; detail is budget-limited.` : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) + (!this.initialized ? " Loading complete 3D base; no surface displayed until ready." : "") + (this.transaction ? " Streaming\u2026" : "") + (this.error ? ` Patch failed: ${this.error}. ${this.initialized ? "Previous complete surface retained" : "No 3D base loaded"}; retry available.` : "")
+        text: `${this.cubes ? "Cubes" : "Triangles"}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` + (this.cubes ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; detail is budget-limited.` : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) + (!this.initialized ? " Loading complete 3D base; no surface displayed until ready." : "") + (this.transaction ? " Streaming\u2026" : "") + (this.error ? ` Patch failed: ${this.error}. ${this.initialized ? "Previous complete surface retained" : "No 3D base loaded"}; retry available.` : "")
       });
     }
   };
@@ -25678,7 +25688,7 @@ varying vec3 worldColorPosition;`
       this.failed = /* @__PURE__ */ new Map();
       this.desired = [];
       this.morphTime = { value: 0 };
-      this.cubeSizeFactor = 4;
+      this.cubeSizes = { near: 1, far: 4 };
       this.materials = [];
       this.appearance = {
         exaggeration: 1,
@@ -25761,7 +25771,7 @@ varying vec3 worldColorPosition;`
             this.morphTime,
             (status) => this.status({ ...status, manifest })
           );
-          this.progressive.setCubeSizeFactor(this.cubeSizeFactor);
+          this.progressive.setCubeSizeFactors(this.cubeSizes.near, this.cubeSizes.far);
           this.progressive.start();
           return;
         }
@@ -25835,10 +25845,9 @@ varying vec3 worldColorPosition;`
       this.pump();
       this.emit();
     }
-    setCubeSizeFactor(factor) {
-      if (![1, 2, 4, 8, 16, 32, 64].includes(factor)) throw new Error("Invalid far cube size factor.");
-      this.cubeSizeFactor = factor;
-      this.progressive?.setCubeSizeFactor(factor);
+    setCubeSizeFactors(near, far) {
+      this.cubeSizes = cubeSizeFactors(near, far);
+      this.progressive?.setCubeSizeFactors(near, far);
     }
     retry() {
       if (this.progressive) {
@@ -26475,7 +26484,10 @@ varying vec3 worldColorPosition;`
         })();
       });
       input("cube-size").addEventListener("input", () => {
-        this.updateCubeSizeControl();
+        this.updateCubeSizeControl("far");
+      });
+      input("near-cube-size").addEventListener("input", () => {
+        this.updateCubeSizeControl("near");
       });
       el("camera-go").addEventListener("click", () => {
         try {
@@ -26810,18 +26822,22 @@ varying vec3 worldColorPosition;`
         }
       });
     }
-    updateCubeSizeControl() {
+    updateCubeSizeControl(changed = "far") {
       const size = this.worldModelManifest?.cellSizeCm;
-      if (size) {
-        input("cube-size").max = String(Math.log2(6400 / size));
-        el("cube-size-note").textContent = `${displayNumber(size / 100)} m nearby. Distant detail is budget-limited; the complete coarse base stays loaded.`;
+      for (const id of ["near-cube-size", "cube-size"])
+        if (size) input(id).max = String(Math.log2(6400 / size));
+      const factors = cubeSizeFactors(2 ** value("near-cube-size"), 2 ** value("cube-size"), changed);
+      for (const [id, factor] of [["near-cube-size", factors.near], ["cube-size", factors.far]]) {
+        input(id).value = String(Math.log2(factor));
+        const label = size ? `${displayNumber(factor * size / 100)} m` : "loading resolution";
+        el(`${id}-value`).textContent = `${factor}\xD7 (${label})`;
+        input(id).setAttribute("aria-valuetext", size ? `${displayNumber(factor * size / 100)} metres` : `${factor} times export resolution`);
       }
-      const factor = 2 ** value("cube-size");
-      el("cube-size-value").textContent = size ? `${factor}\xD7 (${displayNumber(factor * size / 100)} m)` : `${factor}\xD7 (loading resolution)`;
-      this.worldModel.setCubeSizeFactor(factor);
+      this.worldModel.setCubeSizeFactors(factors.near, factors.far);
     }
     updateWorldModel() {
       this.worldModelManifest = void 0;
+      el("near-cube-size-label").hidden = !this.blockModelUrl;
       el("cube-size-label").hidden = !this.blockModelUrl;
       this.updateCubeSizeControl();
       el("world-cutaway-label").hidden = true;

@@ -10,7 +10,7 @@ import {
     type WorldModelManifest,
     type WorldModelStatus,
 } from '../src/world-model.js';
-import { attachWorldMorph, morphWeight } from '../src/progressive-world.js';
+import { attachWorldMorph, cubeSizeFactors, morphWeight } from '../src/progressive-world.js';
 
 const box = { minX: 0, minY: 0, minZ: 100, maxX: 100, maxY: 100, maxZ: 100 };
 function fixture(): WorldModelManifest {
@@ -274,9 +274,22 @@ test('one- and two-metre cube hierarchies accept local bases and content-address
         }
     }
     const layer = new WorldModelLayer(() => {});
-    for (const factor of [1, 2, 4, 8, 16, 32, 64]) layer.setCubeSizeFactor(factor);
-    for (const factor of [0, 3, 128]) assert.throws(() => layer.setCubeSizeFactor(factor));
+    for (const factor of [1, 2, 4, 8, 16, 32, 64]) layer.setCubeSizeFactors(factor, factor);
+    for (const factor of [0, 3, 128, NaN, Infinity]) {
+        assert.throws(() => layer.setCubeSizeFactors(1, factor));
+        assert.throws(() => layer.setCubeSizeFactors(factor, 64));
+    }
+    assert.throws(() => layer.setCubeSizeFactors(8, 4), /Near cube minimum/);
     layer.clear();
+});
+
+test('linked cube size factors keep Near at or below Far and the changed slider wins', () => {
+    assert.deepEqual(cubeSizeFactors(8, 4, 'far'), { near: 4, far: 4 });
+    assert.deepEqual(cubeSizeFactors(8, 4, 'near'), { near: 8, far: 8 });
+    for (const changed of ['near', 'far'] as const) {
+        assert.deepEqual(cubeSizeFactors(2, 8, changed), { near: 2, far: 8 });
+        assert.deepEqual(cubeSizeFactors(4, 4, changed), { near: 4, far: 4 });
+    }
 });
 
 test('cube hierarchy schema has fixed sizes and no morph correspondence', () => {
@@ -335,14 +348,44 @@ test('cubes retain their whole base during delayed loads and swap without morphi
     assert.ok(new THREE.Raycaster(new THREE.Vector3(.2, 10, .2), new THREE.Vector3(0, -1, 0))
         .intersectObjects(layer.meshes, false).length);
     layer.animate(1500);
-    layer.setCubeSizeFactor(1);
+    layer.setCubeSizeFactors(1, 1);
     layer.update(camera(10000), new THREE.Vector3(), 800);
     await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(layer.meshes.length, 2);
-    layer.setCubeSizeFactor(2);
+    layer.setCubeSizeFactors(1, 2);
     layer.update(camera(10000), new THREE.Vector3(), 800);
     await until(() => layer.meshes.length === 1);
-    assert.throws(() => layer.setCubeSizeFactor(3), /Invalid far cube/);
+    assert.throws(() => layer.setCubeSizeFactors(1, 3), /Invalid far cube/);
+    layer.clear();
+});
+
+test('near cube minimum limits close-up refinement and coarsens already-loaded nearby meshes', async () => {
+    const m = cubeFixture();
+    const requested: string[] = [];
+    const statuses: WorldModelStatus[] = [];
+    const request: typeof fetch = async url => {
+        const path = new URL(String(url)).pathname;
+        if (path.endsWith('.json')) return new Response(JSON.stringify(m));
+        const id = path.slice(1, -4);
+        requested.push(id);
+        return new Response(cubeBinary(id));
+    };
+    const layer = new WorldModelLayer(status => statuses.push(status), request);
+    layer.setCubeSizeFactors(2, 2);
+    await layer.enable({ ...context, mapBounds: m.bounds });
+    await until(() => layer.meshes.length === 1);
+    layer.animate(1000);
+    layer.update(camera(10), new THREE.Vector3(), 800);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(requested, ['root']);
+    assert.match(statuses.at(-1)!.text, /8\.00 m nearby target; far target 8\.00 m/);
+    layer.setCubeSizeFactors(1, 2);
+    layer.update(camera(10), new THREE.Vector3(), 800);
+    await until(() => layer.meshes.length === 2);
+    layer.animate(1500);
+    layer.setCubeSizeFactors(2, 2);
+    layer.update(camera(10), new THREE.Vector3(), 800);
+    await until(() => layer.meshes.length === 1);
     layer.clear();
 });
 

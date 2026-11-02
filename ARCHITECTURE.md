@@ -36,8 +36,8 @@ Maps with no published 3D link report an explicit unavailable-extraction error.
 Recorded resource coordinates remain unchanged and are never surface-clamped.
 Resource markers and their glow keep a fixed screen size in both camera
 projections for readability; the Marker size slider controls their size.
-Far cube target, Terrain lighting, and Show mesh edges are visible only when
-Show debug is enabled.
+Near cube minimum, Far cube target, Terrain lighting, and Show mesh edges are
+visible only when Show debug is enabled.
 Clustering controls sit below the resource list and node-count summary.
 
 ### Optional continuous collision-world skin
@@ -144,12 +144,15 @@ occupancy, not height interpolation or fixed-depth skirts. Seam geometry partici
 in picking, collision, appearance and the triangle/residency budgets. Surface
 and seam replacements are atomic, without morphing cubes into sloped surfaces.
 
-The client-side **Far cube target** slider selects powers of two times the map's
-finest cube edge length, up to 64 m (initial target 4x). It supports both existing
-4 m publications and 1 m intersection-based exports. Within 750 m of a partition,
-the target remains the finest published size. Geometry budgets may keep more distant sections
-coarser than the target, but never discard the complete base to meet it.
-Changing the slider selects precomputed occupancy meshes; it does not
+The debug-only **Near cube minimum** and **Far cube target** sliders select powers
+of two times the map's finest cube edge length, up to 64 m (initial factors 1x
+and 4x). They support both existing 4 m publications and 1 m intersection-based
+exports. Within 750 m of a partition, Near controls the smallest requested cubes;
+Far controls the distant target. Moving either slider adjusts the other when
+needed to keep Near no larger than Far. Raising Near coarsens nearby meshes,
+allowing inspection of larger cubes close up. Geometry budgets may retain coarser
+detail, but never discard the complete base to meet the targets.
+Changing either slider selects precomputed occupancy meshes; it does not
 re-voxelize triangles or fetch all fine terrain in the browser.
 Native validation reconstructs every mesh from its saved occupancy, verifies
 parent solid coverage and lattice alignment, and rejects overlapping roots.

@@ -88,7 +88,7 @@ test('retired terrain controls have no markup or viewer wiring', () => {
 
 test('panel diagnostics are debug-only without hiding actionable failures', () => {
     assert.match(html, /body:not\(\.show-debug\) \[data-debug\]/);
-    for (const id of ['warnings', 'world-model-status', 'world-model-details', 'cube-size-label']) {
+    for (const id of ['warnings', 'world-model-status', 'world-model-details', 'near-cube-size-label', 'cube-size-label']) {
         assert.match(html, new RegExp(`<[^>]+id="${id}"[^>]+data-debug`));
     }
     for (const id of ['shading', 'wireframe'])
@@ -100,6 +100,18 @@ test('panel diagnostics are debug-only without hiding actionable failures', () =
     }
     assert.match(viewer, /!status.retry && this.worldModel.meshes.length > 0/);
     assert.match(viewer, /classList.toggle\('show-debug', checked\('debug-toggle'\)\)/);
+});
+
+test('near and far cube sliders share resolution limits and send the changed control to linked sizing', () => {
+    assert.match(html, /Near cube minimum/);
+    assert.match(html, /id="near-cube-size" type="range"[^>]+value="0"/);
+    assert.match(html, /id="near-cube-size-value" for="near-cube-size"/);
+    assert.match(viewer, /updateCubeSizeControl\('near'\)/);
+    assert.match(viewer, /updateCubeSizeControl\('far'\)/);
+    assert.match(viewer, /for \(const id of \['near-cube-size', 'cube-size'\]\)/);
+    assert.match(viewer, /cubeSizeFactors\(2 \*\* value\('near-cube-size'\), 2 \*\* value\('cube-size'\), changed\)/);
+    assert.match(viewer, /this.worldModel.setCubeSizeFactors\(factors.near, factors.far\)/);
+    assert.match(viewer, /el\('near-cube-size-label'\).hidden = !this.blockModelUrl/);
 });
 
 test('resource markers and glow use fixed screen sizes without an attenuation control', () => {
@@ -158,5 +170,5 @@ test('viewer is cube-only without representation selection; clipboard remains pu
         assert.ok(!tag.includes('data-debug'));
     }
     assert.match(viewer, /navigator.clipboard.readText\(\)/);
-    assert.match(viewer, /this.worldModel.setCubeSizeFactor\(factor\)/);
+    assert.match(viewer, /this.worldModel.setCubeSizeFactors\(factors.near, factors.far\)/);
 });

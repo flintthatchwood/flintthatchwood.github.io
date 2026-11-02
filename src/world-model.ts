@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { worldUnitsPerPixel, type MapCamera } from './camera-view.js';
 import { boundedResponse } from './bounded-response.js';
 import type { CoordinateSystem } from './data/types.js';
-import { ProgressiveWorld, attachWorldMorph } from './progressive-world.js';
+import { ProgressiveWorld, attachWorldMorph, cubeSizeFactors } from './progressive-world.js';
 
 export const WORLD_TILE_BYTES = 32 * 1024 * 1024;
 export const WORLD_RESIDENT_BYTES = 96 * 1024 * 1024;
@@ -602,7 +602,7 @@ export class WorldModelLayer {
     private desired: WorldSelection[] = [];
     private progressive?: ProgressiveWorld;
     private morphTime = { value: 0 };
-    private cubeSizeFactor = 4;
+    private cubeSizes = { near: 1, far: 4 };
     private materials: SurfaceMaterial[] = [];
     private wireMaterial?: THREE.MeshBasicMaterial;
     private appearance: Appearance = {
@@ -691,7 +691,7 @@ export class WorldModelLayer {
                     this.morphTime,
                     (status) => this.status({ ...status, manifest }),
                 );
-                this.progressive.setCubeSizeFactor(this.cubeSizeFactor);
+                this.progressive.setCubeSizeFactors(this.cubeSizes.near, this.cubeSizes.far);
                 this.progressive.start();
                 return;
             }
@@ -773,10 +773,9 @@ export class WorldModelLayer {
         this.pump();
         this.emit();
     }
-    setCubeSizeFactor(factor: number): void {
-        if (![1, 2, 4, 8, 16, 32, 64].includes(factor)) throw new Error('Invalid far cube size factor.');
-        this.cubeSizeFactor = factor;
-        this.progressive?.setCubeSizeFactor(factor);
+    setCubeSizeFactors(near: number, far: number): void {
+        this.cubeSizes = cubeSizeFactors(near, far);
+        this.progressive?.setCubeSizeFactors(near, far);
     }
     retry(): void {
         if (this.progressive) {

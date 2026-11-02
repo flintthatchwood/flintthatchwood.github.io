@@ -9,6 +9,7 @@ import { World, type WorldPoint } from './world/World.js';
 import { resourcePositions } from './resource-positions.js';
 import { json } from './metadata.js';
 import { WorldModelLayer, type WorldModelManifest } from './world-model.js';
+import { cubeSizeFactors } from './progressive-world.js';
 import { cameraCodeDirection, decodeCameraCode, encodeCameraCode } from './camera-code.js';
 import { changeProjection, fitMapCamera, resizeMapCamera, worldUnitsPerPixel, type MapCamera, type Projection } from './camera-view.js';
 import { displayNumber as number } from './display-number.js';
@@ -413,7 +414,10 @@ export class Viewer {
             })();
         });
         input('cube-size').addEventListener('input', () => {
-            this.updateCubeSizeControl();
+            this.updateCubeSizeControl('far');
+        });
+        input('near-cube-size').addEventListener('input', () => {
+            this.updateCubeSizeControl('near');
         });
         el('camera-go').addEventListener('click', () => {
             try {
@@ -767,21 +771,23 @@ export class Viewer {
         });
     }
 
-    private updateCubeSizeControl(): void {
+    private updateCubeSizeControl(changed: 'near' | 'far' = 'far'): void {
         const size = this.worldModelManifest?.cellSizeCm;
-        if (size) {
-            input('cube-size').max = String(Math.log2(6400 / size));
-            el('cube-size-note').textContent = `${number(size / 100)} m nearby. Distant detail is budget-limited; the complete coarse base stays loaded.`;
+        for (const id of ['near-cube-size', 'cube-size'])
+            if (size) input(id).max = String(Math.log2(6400 / size));
+        const factors = cubeSizeFactors(2 ** value('near-cube-size'), 2 ** value('cube-size'), changed);
+        for (const [id, factor] of [['near-cube-size', factors.near], ['cube-size', factors.far]] as const) {
+            input(id).value = String(Math.log2(factor));
+            const label = size ? `${number(factor * size / 100)} m` : 'loading resolution';
+            el(`${id}-value`).textContent = `${factor}\u00d7 (${label})`;
+            input(id).setAttribute('aria-valuetext', size ? `${number(factor * size / 100)} metres` : `${factor} times export resolution`);
         }
-        const factor = 2 ** value('cube-size');
-        el('cube-size-value').textContent = size
-            ? `${factor}\u00d7 (${number(factor * size / 100)} m)`
-            : `${factor}\u00d7 (loading resolution)`;
-        this.worldModel.setCubeSizeFactor(factor);
+        this.worldModel.setCubeSizeFactors(factors.near, factors.far);
     }
 
     private updateWorldModel(): void {
         this.worldModelManifest = undefined;
+        el('near-cube-size-label').hidden = !this.blockModelUrl;
         el('cube-size-label').hidden = !this.blockModelUrl;
         this.updateCubeSizeControl();
         el('world-cutaway-label').hidden = true;

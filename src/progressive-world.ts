@@ -39,6 +39,18 @@ interface Transaction {
     remove: string[];
 }
 
+export function cubeSizeFactors(near: number, far: number, changed?: 'near' | 'far'): { near: number; far: number } {
+    const factors = [1, 2, 4, 8, 16, 32, 64];
+    if (!factors.includes(near)) throw new Error('Invalid near cube size factor.');
+    if (!factors.includes(far)) throw new Error('Invalid far cube size factor.');
+    if (near > far) {
+        if (changed === 'near') far = near;
+        else if (changed === 'far') near = far;
+        else throw new Error('Near cube minimum cannot exceed far cube target.');
+    }
+    return { near, far };
+}
+
 export function morphWeight(start: number, direction: number, time: number): number {
     const progress = THREE.MathUtils.clamp((time - start) / MORPH_SECONDS, 0, 1);
     return direction > 0 ? progress : 1 - progress;
@@ -107,13 +119,12 @@ export class ProgressiveWorld {
     private initialized = false;
     private disposed = false;
     private selectionMs = 0;
-    private cubeSizeFactor = 4;
+    private cubeSizes = { near: 1, far: 4 };
     private get cubes(): boolean {
         return this.manifest.statistics.hierarchyVersion === 3;
     }
-    setCubeSizeFactor(factor: number): void {
-        if (![1, 2, 4, 8, 16, 32, 64].includes(factor)) throw new Error('Invalid far cube size factor.');
-        this.cubeSizeFactor = factor;
+    setCubeSizeFactors(near: number, far: number): void {
+        this.cubeSizes = cubeSizeFactors(near, far);
     }
     constructor(
         private manifest: WorldModelManifest,
@@ -197,7 +208,7 @@ export class ProgressiveWorld {
                 const distance = camera instanceof THREE.OrthographicCamera
                     ? Math.hypot(box.distanceToPoint(focus), worldUnitsPerPixel(camera, height, 1) * height / 2)
                     : box.distanceToPoint(camera.position);
-                const target = this.manifest.cellSizeCm * (distance < 750 ? 1 : this.cubeSizeFactor);
+                const target = this.manifest.cellSizeCm * (distance < 750 ? this.cubeSizes.near : this.cubeSizes.far);
                 return node.lods[0].cubeSizeCm! > target
                     ? 3 + node.lods[0].cubeSizeCm! / target / (1 + distance / 1000)
                     : 0.5;
@@ -433,7 +444,7 @@ export class ProgressiveWorld {
             text:
                 `${this.cubes ? 'Cubes' : 'Triangles'}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` +
                 (this.cubes
-                    ? `${displayNumber(this.manifest.cellSizeCm / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizeFactor / 100)} m. Complete coarse coverage retained; detail is budget-limited.`
+                    ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; detail is budget-limited.`
                     : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) +
                 (!this.initialized
                     ? ' Loading complete 3D base; no surface displayed until ready.'
