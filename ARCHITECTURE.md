@@ -311,7 +311,11 @@ the existing morph-aware picking geometry during triangle transitions.
 Clicking the map enables continuous WASD movement in both projections. In World
 mode, W/S pan along camera yaw in the native X/Y plane and A/D strafe in that
 same plane. Altitude (native Z), pitch, zoom, field of view and near plane stay
-unchanged. The horizontal heading comes from camera-right, so an exact top-down
+unchanged with WASD alone. Space raises the camera along world height (native Z)
+and C lowers it in both modes, making the map move in the opposite direction.
+Vertical travel is independent of camera pitch and uses the same speed, Shift
+multiplier and Camera-mode terrain collision as WASD.
+The horizontal heading comes from camera-right, so an exact top-down
 view still pans consistently without projecting a zero-length forward vector.
 In Camera mode, W/S fly along the full view direction and A/D along camera-right,
 with streamed terrain collision. Camera, look target and orbit

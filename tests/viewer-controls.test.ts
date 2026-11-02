@@ -39,6 +39,16 @@ test('WASD flight is continuous, does not steal form input and stops on focus lo
     assert.match(viewer, /this.flightFast,\s+this.movementMode/);
 });
 
+test('Space and C share continuous movement, input guards and key-release handling with WASD', () => {
+    assert.match(viewer, /const FLIGHT_KEYS = \['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'\]/);
+    assert.match(viewer, /if \(FLIGHT_KEYS.includes\(event.code\)\)/);
+    assert.match(viewer, /!FLIGHT_KEYS.some\(key => this.flightKeys.has\(key\)\)/);
+    assert.match(viewer, /const vertical = Number\(this.flightKeys.has\('Space'\)\) - Number\(this.flightKeys.has\('KeyC'\)\)/);
+    assert.match(viewer, /this.movementMode,\s+vertical,/);
+    assert.match(viewer, /Space up, C down/);
+    assert.match(html, /Space: up · C: down/);
+});
+
 test('orthographic north-up defaults, projection selector and accessible panel toggle are wired', () => {
     assert.match(html, /value="orthographic" selected>Orthographic/);
     assert.match(html, /value="perspective">Perspective/);

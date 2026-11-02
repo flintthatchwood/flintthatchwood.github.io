@@ -32,6 +32,7 @@ const el = (id: string): HTMLElement => {
 const input = (id: string): HTMLInputElement => el(id) as HTMLInputElement;
 const value = (id: string): number => Number(input(id).value);
 const checked = (id: string): boolean => input(id).checked;
+const FLIGHT_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC'];
 
 interface MarkerLayer {
     points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
@@ -335,11 +336,11 @@ export class Viewer {
                 editing(event.target) ||
                 document.hidden || !this.map || !this.manifest || !el('loading').hidden
             ) return;
-            if (!['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft', 'ShiftRight'].includes(event.code))
+            if (![...FLIGHT_KEYS, 'ShiftLeft', 'ShiftRight'].includes(event.code))
                 return;
             if (event.repeat && !this.flightKeys.has(event.code)) return;
             this.flightFast = event.shiftKey;
-            if (event.code.startsWith('Key')) {
+            if (FLIGHT_KEYS.includes(event.code)) {
                 if (this.flightDistance === undefined)
                     this.flightDistance = this.camera.position.distanceTo(this.surfaceAt() ?? this.controls.target);
                 this.homeView = undefined;
@@ -350,7 +351,7 @@ export class Viewer {
         window.addEventListener('keyup', (event) => {
             this.flightFast = event.shiftKey;
             this.flightKeys.delete(event.code);
-            if (!['KeyW', 'KeyA', 'KeyS', 'KeyD'].some(key => this.flightKeys.has(key))) {
+            if (!FLIGHT_KEYS.some(key => this.flightKeys.has(key))) {
                 this.flightDistance = undefined;
                 this.flightTime = undefined;
             }
@@ -461,7 +462,7 @@ export class Viewer {
         }
         const canvas = this.renderer.domElement;
         canvas.tabIndex = 0;
-        canvas.setAttribute('aria-label', 'Map camera: WASD movement, Shift for faster movement');
+        canvas.setAttribute('aria-label', 'Map camera: WASD movement, Space up, C down, Shift for faster movement');
         canvas.addEventListener(
             'pointerdown',
             (event) => {
@@ -956,6 +957,7 @@ export class Viewer {
         this.flightTime = now;
         const forward = Number(this.flightKeys.has('KeyW')) - Number(this.flightKeys.has('KeyS'));
         const strafe = Number(this.flightKeys.has('KeyD')) - Number(this.flightKeys.has('KeyA'));
+        const vertical = Number(this.flightKeys.has('Space')) - Number(this.flightKeys.has('KeyC'));
         this.orbitPivot.add(moveCamera(
             this.camera,
             this.controls.target,
@@ -965,6 +967,7 @@ export class Viewer {
             this.flightDistance,
             this.flightFast,
             this.movementMode,
+            vertical,
         ));
     }
 

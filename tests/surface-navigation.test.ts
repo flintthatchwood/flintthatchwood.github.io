@@ -162,6 +162,39 @@ test('keyboard flight is frame-rate independent, normalized diagonally and four 
     }
 });
 
+test('vertical movement follows world height in either mode and projection regardless of camera pitch', () => {
+    for (const mode of ['world', 'camera'] as const)
+        for (const orthographic of [false, true])
+            for (const pitch of [-Math.PI / 2, 0, Math.PI / 2])
+                for (const vertical of [-1, 1]) {
+                    const camera = orthographic
+                        ? new THREE.OrthographicCamera(-100, 100, 100, -100, 1, 1000000)
+                        : new THREE.PerspectiveCamera(42, 1, 1, 1000000);
+                    camera.position.set(100, 200, 300);
+                    camera.rotation.set(pitch, 0.4, 0);
+                    const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 100);
+                    const position = camera.position.clone(), originalTarget = target.clone();
+                    const rotation = camera.quaternion.clone(), zoom = camera.zoom;
+                    const movement = moveCamera(camera, target, 0, 0, 0.05, 100, false, mode, vertical);
+                    close(movement.distanceTo(new THREE.Vector3(0, 2 * vertical, 0)), 0);
+                    assert.ok(camera.position.distanceTo(position.add(movement)) < 1e-8);
+                    assert.ok(target.distanceTo(originalTarget.add(movement)) < 1e-8);
+                    close(Math.abs(camera.quaternion.dot(rotation)), 1);
+                    close(camera.position.distanceTo(target), 100);
+                    close(camera.zoom, zoom);
+                }
+});
+
+test('vertical diagonals share the speed limit and Shift multiplier; invalid vertical input is rejected', () => {
+    for (const mode of ['world', 'camera'] as const)
+        for (const fast of [false, true]) {
+            const { camera, target } = fixture(100);
+            close(moveCamera(camera, target, 1, 1, 0.05, 100, fast, mode, 1).length(), fast ? 8 : 2);
+            for (const vertical of [NaN, Infinity, -2, 2])
+                assert.throws(() => moveCamera(camera, target, 0, 0, 0.05, 100, fast, mode, vertical), /movement input/);
+        }
+});
+
 test('keyboard flight has a minimum speed, caps stalled frames and cancels opposing keys', () => {
     const { camera, target } = fixture(), start = camera.position.clone();
     close(moveCamera(camera, target, 1, 0, 1000, 0.01).length(), 0.1);

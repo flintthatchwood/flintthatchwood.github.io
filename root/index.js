@@ -25866,8 +25866,8 @@ varying vec3 worldColorPosition;`
       throw new Error("Invalid surface-navigation pinch input.");
     return Math.log(previous / current) / ZOOM_GAIN;
   }
-  function moveCamera(camera, lookTarget, forward, strafe, seconds, focusDistance, fast = false, movementMode = "camera") {
-    if (!finite(camera.position) || !finite(lookTarget) || ![forward, strafe, seconds, focusDistance].every(Number.isFinite) || Math.abs(forward) > 1 || Math.abs(strafe) > 1 || seconds < 0 || focusDistance < 0 || movementMode !== "world" && movementMode !== "camera")
+  function moveCamera(camera, lookTarget, forward, strafe, seconds, focusDistance, fast = false, movementMode = "camera", vertical = 0) {
+    if (!finite(camera.position) || !finite(lookTarget) || ![forward, strafe, vertical, seconds, focusDistance].every(Number.isFinite) || Math.abs(forward) > 1 || Math.abs(strafe) > 1 || Math.abs(vertical) > 1 || seconds < 0 || focusDistance < 0 || movementMode !== "world" && movementMode !== "camera")
       throw new Error("Invalid camera-movement input.");
     const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
     if (movementMode === "world") {
@@ -25876,7 +25876,9 @@ varying vec3 worldColorPosition;`
       right.normalize();
     }
     const direction = (movementMode === "world" ? new Vector3(0, 1, 0).cross(right) : camera.getWorldDirection(new Vector3())).multiplyScalar(forward);
-    direction.addScaledVector(right, strafe).normalize();
+    direction.addScaledVector(right, strafe);
+    direction.y += vertical;
+    direction.normalize();
     const speed = MathUtils.clamp(focusDistance * 0.4, 2, 2e3) * (fast ? 4 : 1);
     const movement = direction.multiplyScalar(speed * Math.min(seconds, 0.05));
     camera.position.add(movement);
@@ -25979,6 +25981,7 @@ varying vec3 worldColorPosition;`
   var input = (id) => el(id);
   var value = (id) => Number(input(id).value);
   var checked = (id) => input(id).checked;
+  var FLIGHT_KEYS = ["KeyW", "KeyA", "KeyS", "KeyD", "Space", "KeyC"];
   function dispose(group) {
     const geometries = /* @__PURE__ */ new Set();
     const materials = /* @__PURE__ */ new Set();
@@ -26222,11 +26225,11 @@ varying vec3 worldColorPosition;`
           return;
         }
         if (editing(event.target) || document.hidden || !this.map || !this.manifest || !el("loading").hidden) return;
-        if (!["KeyW", "KeyA", "KeyS", "KeyD", "ShiftLeft", "ShiftRight"].includes(event.code))
+        if (![...FLIGHT_KEYS, "ShiftLeft", "ShiftRight"].includes(event.code))
           return;
         if (event.repeat && !this.flightKeys.has(event.code)) return;
         this.flightFast = event.shiftKey;
-        if (event.code.startsWith("Key")) {
+        if (FLIGHT_KEYS.includes(event.code)) {
           if (this.flightDistance === void 0)
             this.flightDistance = this.camera.position.distanceTo(this.surfaceAt() ?? this.controls.target);
           this.homeView = void 0;
@@ -26237,7 +26240,7 @@ varying vec3 worldColorPosition;`
       window.addEventListener("keyup", (event) => {
         this.flightFast = event.shiftKey;
         this.flightKeys.delete(event.code);
-        if (!["KeyW", "KeyA", "KeyS", "KeyD"].some((key) => this.flightKeys.has(key))) {
+        if (!FLIGHT_KEYS.some((key) => this.flightKeys.has(key))) {
           this.flightDistance = void 0;
           this.flightTime = void 0;
         }
@@ -26345,7 +26348,7 @@ varying vec3 worldColorPosition;`
       }
       const canvas = this.renderer.domElement;
       canvas.tabIndex = 0;
-      canvas.setAttribute("aria-label", "Map camera: WASD movement, Shift for faster movement");
+      canvas.setAttribute("aria-label", "Map camera: WASD movement, Space up, C down, Shift for faster movement");
       canvas.addEventListener(
         "pointerdown",
         (event) => {
@@ -26797,6 +26800,7 @@ varying vec3 worldColorPosition;`
       this.flightTime = now;
       const forward = Number(this.flightKeys.has("KeyW")) - Number(this.flightKeys.has("KeyS"));
       const strafe = Number(this.flightKeys.has("KeyD")) - Number(this.flightKeys.has("KeyA"));
+      const vertical = Number(this.flightKeys.has("Space")) - Number(this.flightKeys.has("KeyC"));
       this.orbitPivot.add(moveCamera(
         this.camera,
         this.controls.target,
@@ -26805,7 +26809,8 @@ varying vec3 worldColorPosition;`
         (now - previous) / 1e3,
         this.flightDistance,
         this.flightFast,
-        this.movementMode
+        this.movementMode,
+        vertical
       ));
     }
     dolly(pixels) {

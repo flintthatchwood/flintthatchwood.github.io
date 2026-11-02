@@ -36,13 +36,15 @@ export function moveCamera(
     focusDistance: number,
     fast = false,
     movementMode: 'world' | 'camera' = 'camera',
+    vertical = 0,
 ): THREE.Vector3 {
     if (
         !finite(camera.position) ||
         !finite(lookTarget) ||
-        ![forward, strafe, seconds, focusDistance].every(Number.isFinite) ||
+        ![forward, strafe, vertical, seconds, focusDistance].every(Number.isFinite) ||
         Math.abs(forward) > 1 ||
         Math.abs(strafe) > 1 ||
+        Math.abs(vertical) > 1 ||
         seconds < 0 ||
         focusDistance < 0 ||
         (movementMode !== 'world' && movementMode !== 'camera')
@@ -57,7 +59,9 @@ export function moveCamera(
     const direction = (movementMode === 'world'
         ? new THREE.Vector3(0, 1, 0).cross(right)
         : camera.getWorldDirection(new THREE.Vector3())).multiplyScalar(forward);
-    direction.addScaledVector(right, strafe).normalize();
+    direction.addScaledVector(right, strafe);
+    direction.y += vertical;
+    direction.normalize();
     const speed = THREE.MathUtils.clamp(focusDistance * 0.4, 2, 2000) * (fast ? 4 : 1);
     const movement = direction.multiplyScalar(speed * Math.min(seconds, 0.05));
     camera.position.add(movement);
