@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { worldUnitsPerPixel, type MapCamera } from './camera-view.js';
 import { displayNumber } from './display-number.js';
 import { boundedResponse } from './bounded-response.js';
+import { cubeSeamGeometry, extractCubeSurface, planCubeSeams, type CubeSurface } from './cube-seams.js';
 import {
     worldBinaryBytes,
     worldGeometry,
@@ -26,11 +27,14 @@ interface Patch {
     node: WorldTile;
     mesh: THREE.Mesh;
     readyAt: number;
+    surface?: CubeSurface;
+    seam?: THREE.Mesh;
 }
 interface Transaction {
     controller: AbortController;
     nodes: WorldTile[];
     loaded: Map<string, THREE.Mesh>;
+    surfaces: Map<string, CubeSurface>;
     finishAt?: number;
     remove: string[];
 }
@@ -125,7 +129,7 @@ export class ProgressiveWorld {
             for (const child of node.children ?? []) this.parents.set(child, node);
     }
     get meshes(): THREE.Mesh[] {
-        return [...this.active.values()].map((p) => p.mesh);
+        return [...this.active.values()].flatMap(p => p.seam ? [p.mesh, p.seam] : [p.mesh]);
     }
     get allMeshes(): THREE.Mesh[] {
         return [...this.meshes, ...(this.transaction?.loaded.values() ?? [])];
@@ -146,6 +150,10 @@ export class ProgressiveWorld {
         for (const p of this.active.values()) {
             this.group.remove(p.mesh);
             p.mesh.geometry.dispose();
+            if (p.seam) {
+                this.group.remove(p.seam);
+                p.seam.geometry.dispose();
+            }
         }
         this.active.clear();
     }
@@ -271,6 +279,7 @@ export class ProgressiveWorld {
             nodes,
             remove,
             loaded: new Map(),
+            surfaces: new Map(),
         };
         this.transaction = tx;
         this.emit();
@@ -298,8 +307,12 @@ export class ProgressiveWorld {
                     this.cubes,
                 );
                 const mesh = this.createMesh(geometry);
-                if (!this.cubes) this.installPicking(mesh);
                 tx.loaded.set(node.id, mesh);
+                if (this.cubes && this.manifest.statistics.seamPolicy === 'closed-voxel-partitions-v1')
+                    tx.surfaces.set(node.id, extractCubeSurface(
+                        geometry, node, this.context.centerX, this.context.centerY,
+                    ));
+                if (!this.cubes) this.installPicking(mesh);
             }
         };
         void Promise.all(Array.from({ length: Math.min(2, nodes.length) }, load))
@@ -322,6 +335,37 @@ export class ProgressiveWorld {
             });
     }
     private commit(tx: Transaction, morph: boolean): void {
+        const next = new Map(this.active);
+        for (const id of tx.remove) next.delete(id);
+        for (const node of tx.nodes)
+            next.set(node.id, {
+                node,
+                mesh: tx.loaded.get(node.id)!,
+                surface: tx.surfaces.get(node.id),
+                readyAt: this.time.value + (morph ? MORPH_SECONDS : 0),
+            });
+        const patches = [...next.values()].filter((p): p is Patch & { surface: CubeSurface } => !!p.surface);
+        const plans = planCubeSeams(patches.map(p => p.surface));
+        if (patches.length) {
+            const bytes = (mesh: THREE.Mesh) => mesh.geometry.getAttribute('position').count * 32 +
+                (mesh.geometry.index?.count ?? 0) * 4;
+            const finalTriangles = [...next.values()].reduce((sum, p) => sum + (p.mesh.geometry.index?.count ?? 0) / 3, 0) +
+                plans.reduce((sum, plan) => sum + plan.faces.length * 2, 0);
+            const residentBytes = this.meshes.reduce((sum, mesh) => sum + bytes(mesh), 0) +
+                [...tx.loaded.values()].reduce((sum, mesh) => sum + bytes(mesh), 0) +
+                plans.reduce((sum, plan) => sum + plan.faces.length * (4 * 32 + 6 * 4), 0);
+            if (finalTriangles > WORLD_TRIANGLES || residentBytes > WORLD_RESIDENT_BYTES)
+                throw new Error('Neighbor-aware cube seams exceed the geometry budget.');
+        }
+        const seams = plans.map(plan => plan.faces.length ? this.createMesh(cubeSeamGeometry(
+            plan, this.context.mapBounds, this.context.centerX, this.context.centerY,
+        )) : undefined);
+        for (const patch of this.active.values())
+            if (patch.seam) {
+                this.group.remove(patch.seam);
+                patch.seam.geometry.dispose();
+                patch.seam = undefined;
+            }
         for (const id of tx.remove) {
             const patch = this.active.get(id)!;
             this.group.remove(patch.mesh);
@@ -331,13 +375,13 @@ export class ProgressiveWorld {
         for (const node of tx.nodes) {
             const mesh = tx.loaded.get(node.id)!;
             if (morph) this.transition(mesh, 1);
-            this.active.set(node.id, {
-                node,
-                mesh,
-                readyAt: this.time.value + (morph ? MORPH_SECONDS : 0),
-            });
+            this.active.set(node.id, next.get(node.id)!);
             this.group.add(mesh);
         }
+        patches.forEach((patch, i) => {
+            patch.seam = seams[i];
+            if (patch.seam) this.group.add(patch.seam);
+        });
         this.transaction = undefined;
         this.initialized = true;
         this.emit();
@@ -381,7 +425,7 @@ export class ProgressiveWorld {
     }
     private emit(): void {
         const triangles = [...this.active.values()].reduce(
-            (sum, p) => sum + p.node.lods[0].triangles,
+            (sum, p) => sum + (p.mesh.geometry.index?.count ?? 0) / 3 + (p.seam?.geometry.index?.count ?? 0) / 3,
             0,
         );
         this.status({

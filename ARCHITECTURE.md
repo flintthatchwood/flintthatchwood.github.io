@@ -135,11 +135,14 @@ strict-majority occupancy; new native exports use 1 m triangle intersections.
 Coarse powers-of-two occupancy through 64 m uses any existing child
 solid, preventing repeated-majority erosion of thin barriers. It can thicken
 surfaces and close narrow gaps at distance; it does not rerun source extraction.
-The full 64 m base loads atomically. Internal XY partition walls close the
-volume steps between different cube sizes; artificial outer-world side,
-bottom and ceiling surfaces are never invented. Those internal walls can
-be visible in transparent/cutaway views. Replacements are atomic, without
-morphing cubes into sloped surfaces.
+The full 64 m base loads atomically. Published patches include closed internal
+XY partition walls. The viewer removes these full-height caps and subtracts
+neighboring solid/air edge intervals, retaining only exposed volume steps.
+Shared buried walls cancel; uncovered map edges acquire no artificial curtains.
+This preserves real cliffs, cave floors and ceilings using face-adjacent
+occupancy, not height interpolation or fixed-depth skirts. Seam geometry participates
+in picking, collision, appearance and the triangle/residency budgets. Surface
+and seam replacements are atomic, without morphing cubes into sloped surfaces.
 
 The client-side **Far cube target** slider selects powers of two times the map's
 finest cube edge length, up to 64 m (initial target 4x). It supports both existing
@@ -305,7 +308,7 @@ opacity do not remove physical collision; resource markers never collide.
 Camera movement pauses explicitly until base geometry is resident. CCC restores
 and home/north-up presets remain deliberate teleports and reset the sweep origin.
 This is not the game's player capsule or exact collision union: coarse occupied
-surfaces can close real passages, internal cube partition faces also collide,
+surfaces can close real passages, exposed cube LOD seams also collide,
 and absent extraction geometry cannot block movement. Collision raycasts use
 the existing morph-aware picking geometry during triangle transitions.
 Clicking the map enables continuous WASD movement in both projections. In World

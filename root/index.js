@@ -24844,6 +24844,138 @@
     return text2 === "-0.00" ? "0.00" : text2;
   }
 
+  // src/cube-seams.ts
+  function extractCubeSurface(geometry, tile, centerX, centerY) {
+    const b = tile.bounds;
+    const x0 = Math.fround((b.minX - centerX) / 100), x1 = Math.fround((b.maxX - centerX) / 100);
+    const z0 = Math.fround((b.minY - centerY) / 100), z1 = Math.fround((b.maxY - centerY) / 100);
+    const edges = [
+      { axis: 0, plane: x0, side: -1, start: z0, end: z1, rectangles: [] },
+      { axis: 0, plane: x1, side: 1, start: z0, end: z1, rectangles: [] },
+      { axis: 2, plane: z0, side: -1, start: x0, end: x1, rectangles: [] },
+      { axis: 2, plane: z1, side: 1, start: x0, end: x1, rectangles: [] }
+    ];
+    const positions = geometry.getAttribute("position"), index = geometry.getIndex();
+    if (!index) throw new Error("Cube surface requires indexed geometry.");
+    const coordinate = (vertex, axis) => axis === 0 ? positions.getX(vertex) : positions.getZ(vertex);
+    const kept = new Uint32Array(index.count);
+    const groups = [];
+    const seen = edges.map(() => /* @__PURE__ */ new Map());
+    let cursor = 0;
+    for (const group of geometry.groups) {
+      const start = cursor;
+      for (let i = group.start; i < group.start + group.count; i += 3) {
+        const vertices = [index.getX(i), index.getX(i + 1), index.getX(i + 2)];
+        const edgeIndex = group.materialIndex === 0 || group.materialIndex === 4 ? edges.findIndex((edge2) => vertices.every((v) => coordinate(v, edge2.axis) === edge2.plane)) : -1;
+        if (edgeIndex < 0) {
+          kept.set(vertices, cursor);
+          cursor += 3;
+          continue;
+        }
+        const edge = edges[edgeIndex], along = edge.axis === 0 ? 2 : 0;
+        const rectangle = {
+          start: Math.min(...vertices.map((v) => coordinate(v, along))),
+          end: Math.max(...vertices.map((v) => coordinate(v, along))),
+          low: Math.min(...vertices.map((v) => positions.getY(v))),
+          high: Math.max(...vertices.map((v) => positions.getY(v)))
+        };
+        const key = `${rectangle.start},${rectangle.end},${rectangle.low},${rectangle.high}`;
+        let mask = 0;
+        for (const vertex of vertices) {
+          const horizontal = coordinate(vertex, along), vertical = positions.getY(vertex);
+          if (horizontal !== rectangle.start && horizontal !== rectangle.end || vertical !== rectangle.low && vertical !== rectangle.high)
+            throw new Error("Cube partition cap is not a rectangular triangle pair.");
+          mask |= 1 << Number(horizontal === rectangle.end) + 2 * Number(vertical === rectangle.high);
+        }
+        const previous = seen[edgeIndex].get(key);
+        if (previous !== void 0) {
+          if (previous === 15 || (previous | mask) !== 15 || ![6, 9].includes(previous & mask))
+            throw new Error("Cube partition cap has overlapping or duplicate triangles.");
+          seen[edgeIndex].set(key, 15);
+        } else {
+          seen[edgeIndex].set(key, mask);
+          edge.rectangles.push(rectangle);
+        }
+      }
+      if (seen.some((edge) => [...edge.values()].some((mask) => mask !== 15)))
+        throw new Error("Cube partition cap has an incomplete rectangular triangle pair.");
+      if (cursor > start) groups.push({ start, count: cursor - start, materialIndex: group.materialIndex ?? 0 });
+    }
+    geometry.setIndex(new BufferAttribute(kept.slice(0, cursor), 1));
+    geometry.clearGroups();
+    for (const group of groups) geometry.addGroup(group.start, group.count, group.materialIndex);
+    return { edges };
+  }
+  function subtract(rectangle, cutter) {
+    const start = Math.max(rectangle.start, cutter.start), end = Math.min(rectangle.end, cutter.end);
+    const low = Math.max(rectangle.low, cutter.low), high = Math.min(rectangle.high, cutter.high);
+    if (start >= end || low >= high) return [rectangle];
+    const pieces = [];
+    if (rectangle.start < start) pieces.push({ ...rectangle, end: start });
+    if (end < rectangle.end) pieces.push({ ...rectangle, start: end });
+    if (rectangle.low < low) pieces.push({ start, end, low: rectangle.low, high: low });
+    if (high < rectangle.high) pieces.push({ start, end, low: high, high: rectangle.high });
+    return pieces;
+  }
+  function planCubeSeams(surfaces) {
+    const planes = /* @__PURE__ */ new Map();
+    for (const surface of surfaces)
+      for (const edge of surface.edges) {
+        const key = `${edge.axis}:${edge.plane}`;
+        const bucket = planes.get(key) ?? [];
+        bucket.push(edge);
+        planes.set(key, bucket);
+      }
+    return surfaces.map((surface) => {
+      const faces = [];
+      for (const edge of surface.edges) {
+        const neighbors = planes.get(`${edge.axis}:${edge.plane}`).filter((other) => other.side !== edge.side && other.start < edge.end && other.end > edge.start);
+        for (const rectangle of edge.rectangles)
+          for (const neighbor of neighbors) {
+            const start = Math.max(rectangle.start, neighbor.start), end = Math.min(rectangle.end, neighbor.end);
+            if (start >= end) continue;
+            let pieces = [{ ...rectangle, start, end }];
+            for (const cutter of neighbor.rectangles) {
+              if (cutter.start >= end || cutter.end <= start || cutter.low >= rectangle.high || cutter.high <= rectangle.low) continue;
+              pieces = pieces.flatMap((piece) => subtract(piece, cutter));
+              if (!pieces.length) break;
+            }
+            for (const piece of pieces) faces.push({ edge, rectangle: piece });
+          }
+      }
+      return { surface, faces };
+    });
+  }
+  function cubeSeamGeometry(plan, bounds2, centerX, centerY) {
+    const positions = new Float32Array(plan.faces.length * 12);
+    const uv = new Float32Array(plan.faces.length * 8);
+    const indices = new Uint32Array(plan.faces.length * 6);
+    for (let i = 0; i < plan.faces.length; i++) {
+      const { edge, rectangle: r } = plan.faces[i];
+      const corners = [[r.start, r.low], [r.end, r.low], [r.end, r.high], [r.start, r.high]];
+      for (let j = 0; j < corners.length; j++) {
+        const [along, height] = corners[j], vertex = i * 4 + j;
+        const x = edge.axis === 0 ? edge.plane : along, z = edge.axis === 2 ? edge.plane : along;
+        positions.set([x, height, z], vertex * 3);
+        uv.set([
+          (x * 100 + centerX - bounds2.minX) / (bounds2.maxX - bounds2.minX),
+          1 - (z * 100 + centerY - bounds2.minY) / (bounds2.maxY - bounds2.minY)
+        ], vertex * 2);
+      }
+      const a = i * 4, reverse = edge.axis === 0 ? edge.side > 0 : edge.side < 0;
+      indices.set(reverse ? [a, a + 2, a + 1, a, a + 3, a + 2] : [a, a + 1, a + 2, a, a + 2, a + 3], i * 6);
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new BufferAttribute(uv, 2));
+    geometry.setIndex(new BufferAttribute(indices, 1));
+    geometry.addGroup(0, indices.length, 4);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
+  }
+
   // src/progressive-world.ts
   var MORPH_SECONDS = 0.25;
   function morphWeight(start, direction, time) {
@@ -24920,7 +25052,7 @@ vec3 worldMorphPosition() {
       this.cubeSizeFactor = factor;
     }
     get meshes() {
-      return [...this.active.values()].map((p) => p.mesh);
+      return [...this.active.values()].flatMap((p) => p.seam ? [p.mesh, p.seam] : [p.mesh]);
     }
     get allMeshes() {
       return [...this.meshes, ...this.transaction?.loaded.values() ?? []];
@@ -24941,6 +25073,10 @@ vec3 worldMorphPosition() {
       for (const p of this.active.values()) {
         this.group.remove(p.mesh);
         p.mesh.geometry.dispose();
+        if (p.seam) {
+          this.group.remove(p.seam);
+          p.seam.geometry.dispose();
+        }
       }
       this.active.clear();
     }
@@ -25045,7 +25181,8 @@ vec3 worldMorphPosition() {
         controller: new AbortController(),
         nodes,
         remove,
-        loaded: /* @__PURE__ */ new Map()
+        loaded: /* @__PURE__ */ new Map(),
+        surfaces: /* @__PURE__ */ new Map()
       };
       this.transaction = tx;
       this.emit();
@@ -25072,8 +25209,15 @@ vec3 worldMorphPosition() {
             this.cubes
           );
           const mesh = this.createMesh(geometry);
-          if (!this.cubes) this.installPicking(mesh);
           tx.loaded.set(node.id, mesh);
+          if (this.cubes && this.manifest.statistics.seamPolicy === "closed-voxel-partitions-v1")
+            tx.surfaces.set(node.id, extractCubeSurface(
+              geometry,
+              node,
+              this.context.centerX,
+              this.context.centerY
+            ));
+          if (!this.cubes) this.installPicking(mesh);
         }
       };
       void Promise.all(Array.from({ length: Math.min(2, nodes.length) }, load)).then(() => {
@@ -25094,6 +25238,36 @@ vec3 worldMorphPosition() {
       });
     }
     commit(tx, morph) {
+      const next = new Map(this.active);
+      for (const id of tx.remove) next.delete(id);
+      for (const node of tx.nodes)
+        next.set(node.id, {
+          node,
+          mesh: tx.loaded.get(node.id),
+          surface: tx.surfaces.get(node.id),
+          readyAt: this.time.value + (morph ? MORPH_SECONDS : 0)
+        });
+      const patches = [...next.values()].filter((p) => !!p.surface);
+      const plans = planCubeSeams(patches.map((p) => p.surface));
+      if (patches.length) {
+        const bytes = (mesh) => mesh.geometry.getAttribute("position").count * 32 + (mesh.geometry.index?.count ?? 0) * 4;
+        const finalTriangles = [...next.values()].reduce((sum, p) => sum + (p.mesh.geometry.index?.count ?? 0) / 3, 0) + plans.reduce((sum, plan) => sum + plan.faces.length * 2, 0);
+        const residentBytes = this.meshes.reduce((sum, mesh) => sum + bytes(mesh), 0) + [...tx.loaded.values()].reduce((sum, mesh) => sum + bytes(mesh), 0) + plans.reduce((sum, plan) => sum + plan.faces.length * (4 * 32 + 6 * 4), 0);
+        if (finalTriangles > WORLD_TRIANGLES || residentBytes > WORLD_RESIDENT_BYTES)
+          throw new Error("Neighbor-aware cube seams exceed the geometry budget.");
+      }
+      const seams = plans.map((plan) => plan.faces.length ? this.createMesh(cubeSeamGeometry(
+        plan,
+        this.context.mapBounds,
+        this.context.centerX,
+        this.context.centerY
+      )) : void 0);
+      for (const patch of this.active.values())
+        if (patch.seam) {
+          this.group.remove(patch.seam);
+          patch.seam.geometry.dispose();
+          patch.seam = void 0;
+        }
       for (const id of tx.remove) {
         const patch = this.active.get(id);
         this.group.remove(patch.mesh);
@@ -25103,13 +25277,13 @@ vec3 worldMorphPosition() {
       for (const node of tx.nodes) {
         const mesh = tx.loaded.get(node.id);
         if (morph) this.transition(mesh, 1);
-        this.active.set(node.id, {
-          node,
-          mesh,
-          readyAt: this.time.value + (morph ? MORPH_SECONDS : 0)
-        });
+        this.active.set(node.id, next.get(node.id));
         this.group.add(mesh);
       }
+      patches.forEach((patch, i) => {
+        patch.seam = seams[i];
+        if (patch.seam) this.group.add(patch.seam);
+      });
       this.transaction = void 0;
       this.initialized = true;
       this.emit();
@@ -25149,7 +25323,7 @@ vec3 worldMorphPosition() {
     }
     emit() {
       const triangles = [...this.active.values()].reduce(
-        (sum, p) => sum + p.node.lods[0].triangles,
+        (sum, p) => sum + (p.mesh.geometry.index?.count ?? 0) / 3 + (p.seam?.geometry.index?.count ?? 0) / 3,
         0
       );
       this.status({
