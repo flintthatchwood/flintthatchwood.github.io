@@ -39,7 +39,8 @@ jobs:
           Get-ChildItem -LiteralPath './root' -Recurse -Force |
             Sort-Object FullName |
             Select-Object FullName, Length |
-            Format-Table -AutoSize -Wrap
+            Format-Table -AutoSize -Wrap |
+            Out-String -Width 4096
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
