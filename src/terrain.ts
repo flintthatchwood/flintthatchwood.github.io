@@ -12,6 +12,7 @@ export interface TerrainManifest {
     worldModel?: { url: string };
     blockModel?: { url: string };
     cubeModel?: { url: string };
+    boundaryModel?: { url: string };
     progressiveModel?: { url: string; default?: boolean };
 }
 
@@ -37,7 +38,7 @@ export function validateManifest(manifest: TerrainManifest, mapKey: string): voi
         'spacing' in manifest ||
         (manifest.progressiveModel?.default !== undefined &&
             typeof manifest.progressiveModel.default !== 'boolean') ||
-        [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.progressiveModel].some(
+        [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.progressiveModel, manifest.boundaryModel].some(
             (link) =>
                 link !== undefined &&
                 (link === null || typeof link.url !== 'string' || !link.url.trim()),

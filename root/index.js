@@ -24173,7 +24173,7 @@
       manifest.maxY,
       manifest.minZ,
       manifest.maxZ
-    ].every(Number.isFinite) || manifest.originX >= manifest.maxX || manifest.originY >= manifest.maxY || manifest.minZ >= manifest.maxZ || !Array.isArray(manifest.warnings) || !manifest.warnings.every((warning) => typeof warning === "string") || "tiles" in manifest || "spacing" in manifest || manifest.progressiveModel?.default !== void 0 && typeof manifest.progressiveModel.default !== "boolean" || [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.progressiveModel].some(
+    ].every(Number.isFinite) || manifest.originX >= manifest.maxX || manifest.originY >= manifest.maxY || manifest.minZ >= manifest.maxZ || !Array.isArray(manifest.warnings) || !manifest.warnings.every((warning) => typeof warning === "string") || "tiles" in manifest || "spacing" in manifest || manifest.progressiveModel?.default !== void 0 && typeof manifest.progressiveModel.default !== "boolean" || [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.progressiveModel, manifest.boundaryModel].some(
       (link) => link !== void 0 && (link === null || typeof link.url !== "string" || !link.url.trim())
     ))
       throw new Error(`Invalid 3D map metadata for ${mapKey}.`);
@@ -25395,7 +25395,7 @@ vec3 worldMorphPosition() {
     if (v.version !== 1 || v.mapKey !== mapKey || v.heightUnits !== "centimeters" || v.meshFormat !== "awm1" || !Array.isArray(v.tiles) || !v.tiles.length || v.tiles.length > (progressive ? 262144 : 16384) || !Array.isArray(v.warnings) || !v.warnings.every((w) => typeof w === "string"))
       throw new Error("Invalid world-model manifest.");
     const b = bounds(v.bounds, progressive);
-    const tileSize = number(v.tileSizeCm, 1, 1e6);
+    const tileSize = number(v.tileSizeCm, 1, statistics.representation === "world-boundaries" ? 1e8 : 1e6);
     if (!progressive && (Math.ceil((b.maxX - b.minX) / tileSize) > 2048 || Math.ceil((b.maxY - b.minY) / tileSize) > 2048))
       throw new Error("World-model coverage grid is too large.");
     const ids = /* @__PURE__ */ new Set();
@@ -25677,6 +25677,25 @@ varying vec3 worldColorPosition;`
     };
     material.customProgramCacheKey = () => "world-nearby-color-v3";
   }
+  function energyField(material, time) {
+    Object.assign(material, { extensions: { derivatives: true } });
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.worldFieldTime = time;
+      shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 worldFieldPosition;").replace("#include <begin_vertex>", "#include <begin_vertex>\nworldFieldPosition = position;");
+      shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\nuniform float worldFieldTime;\nvarying vec3 worldFieldPosition;").replace("#include <color_fragment>", `#include <color_fragment>
+vec3 fieldNormal = abs(cross(dFdx(worldFieldPosition), dFdy(worldFieldPosition)));
+vec2 fieldUv = fieldNormal.y > max(fieldNormal.x, fieldNormal.z) ? worldFieldPosition.xz :
+    (fieldNormal.x > fieldNormal.z ? worldFieldPosition.zy : worldFieldPosition.xy);
+vec2 fieldCell = fieldUv / 8.0;
+vec2 fieldWidth = max(fwidth(fieldCell), vec2(0.0001));
+vec2 fieldEdge = abs(fract(fieldCell - 0.5) - 0.5) / fieldWidth;
+float fieldGrid = 1.0 - clamp(min(fieldEdge.x, fieldEdge.y), 0.0, 1.0);
+float fieldPulse = 0.5 + 0.5 * sin(worldFieldPosition.y * 0.12 - worldFieldTime * 1.2);
+diffuseColor.rgb *= 0.85 + 0.25 * fieldPulse + 0.35 * fieldGrid;
+diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
+    };
+    material.customProgramCacheKey = () => "authored-world-energy-field-v1";
+  }
   var WorldModelLayer = class {
     constructor(status, request = fetch) {
       this.status = status;
@@ -25794,12 +25813,14 @@ varying vec3 worldColorPosition;`
       this.clipPlane.constant = this.manifest ? appearance.cutHeightCm / 100 * appearance.exaggeration : 1e9;
       for (let flag = 0; flag < this.materials.length; flag++) {
         const material = this.materials[flag];
+        const boundary = this.manifest?.statistics.representation === "world-boundaries";
         const mapped = !!(flag & 1) || flag === 4, walkable = !!(flag & 2);
         material.color.set(
-          appearance.slopes && walkable ? "#3edc65" : this.context?.texture ? "#ffffff" : "#394149"
+          boundary ? "#72dbf6" : appearance.slopes && walkable ? "#3edc65" : this.context?.texture ? "#ffffff" : "#394149"
         );
-        material.opacity = mapped ? appearance.opacity : 1;
-        material.transparent = material.opacity < 1;
+        material.opacity = boundary ? 0.28 * appearance.opacity : mapped ? appearance.opacity : 1;
+        material.transparent = boundary || material.opacity < 1;
+        material.depthWrite = !boundary;
         material.polygonOffset = appearance.wireframe;
         material.polygonOffsetFactor = 1;
         material.polygonOffsetUnits = 1;
@@ -25867,10 +25888,12 @@ varying vec3 worldColorPosition;`
       const { mapBounds: c, centerX, centerY } = context;
       const clippingPlanes = [
         this.clipPlane,
-        new Plane(new Vector3(1, 0, 0), (centerX - c.minX) / 100),
-        new Plane(new Vector3(-1, 0, 0), (c.maxX - centerX) / 100),
-        new Plane(new Vector3(0, 0, 1), (centerY - c.minY) / 100),
-        new Plane(new Vector3(0, 0, -1), (c.maxY - centerY) / 100)
+        ...this.manifest?.statistics.representation === "world-boundaries" ? [] : [
+          new Plane(new Vector3(1, 0, 0), (centerX - c.minX) / 100),
+          new Plane(new Vector3(-1, 0, 0), (c.maxX - centerX) / 100),
+          new Plane(new Vector3(0, 0, 1), (centerY - c.minY) / 100),
+          new Plane(new Vector3(0, 0, -1), (c.maxY - centerY) / 100)
+        ]
       ];
       const old = this.materials;
       const blockSides = this.manifest?.statistics.representation === "blocks";
@@ -25880,13 +25903,15 @@ varying vec3 worldColorPosition;`
         1 / number(image.height, 1, 1e5)
       ) : void 0;
       this.materials = Array.from({ length: blockSides ? 5 : 4 }, (_, flag) => {
+        const boundary = this.manifest?.statistics.representation === "world-boundaries";
         const common2 = {
-          map: context.texture ?? null,
+          map: boundary ? null : context.texture ?? null,
           side: DoubleSide,
           clippingPlanes
         };
-        const material = this.appearance.lighting ? new MeshPhongMaterial({ ...common2, flatShading: true, specular: "#000000" }) : new MeshBasicMaterial(common2);
-        if (!(flag & 1) && texel) colorCoveredSurface(material, texel);
+        const material = this.appearance.lighting && !boundary ? new MeshPhongMaterial({ ...common2, flatShading: true, specular: "#000000" }) : new MeshBasicMaterial(common2);
+        if (boundary) energyField(material, this.morphTime);
+        else if (!(flag & 1) && texel) colorCoveredSurface(material, texel);
         return material;
       });
       for (const item of this.resident.values()) item.mesh.material = this.materials;
@@ -26225,6 +26250,21 @@ varying vec3 worldColorPosition;`
       this.orbitPivot = new Vector3();
       this.touchPointers = /* @__PURE__ */ new Map();
       this.lastHover = 0;
+      this.worldBoundaries = new WorldModelLayer((status) => {
+        const label = el("world-boundary-status");
+        label.hidden = false;
+        label.textContent = `World boundaries: ${status.text}`;
+        label.toggleAttribute("data-debug", !status.retry);
+        el("world-boundary-retry").hidden = !status.retry;
+        if (status.manifest && status.manifest !== this.worldBoundaryManifest) {
+          this.worldBoundaryManifest = status.manifest;
+          const slider = input("world-cutaway");
+          const uncut = slider.value === slider.max;
+          slider.max = String(Math.max(Number(slider.max), Math.ceil(status.manifest.bounds.maxZ / 100) + 1));
+          if (uncut) slider.value = slider.max;
+          this.appearance();
+        }
+      });
       this.lastWorldCheck = 0;
       this.worldModel = new WorldModelLayer((status) => {
         const bounds2 = status.manifest?.bounds, extent = this.map?.coordinates;
@@ -26255,7 +26295,11 @@ varying vec3 worldColorPosition;`
             Math.floor(Math.min(m.bounds.minZ, this.manifest?.minZ ?? m.bounds.minZ) / 100) - 1
           );
           slider.max = String(
-            Math.ceil(Math.max(m.bounds.maxZ, this.manifest?.maxZ ?? m.bounds.maxZ) / 100) + 1
+            Math.ceil(Math.max(
+              m.bounds.maxZ,
+              this.manifest?.maxZ ?? m.bounds.maxZ,
+              this.worldBoundaryManifest?.bounds.maxZ ?? m.bounds.maxZ
+            ) / 100) + 1
           );
           slider.value = slider.max;
           el("world-cutaway-label").hidden = false;
@@ -26329,6 +26373,7 @@ varying vec3 worldColorPosition;`
       this.scene.add(
         this.resources,
         this.worldModel.group,
+        this.worldBoundaries.group,
         new AmbientLight(16777215, 0.65)
       );
       const sun = new DirectionalLight(16774109, 0.8);
@@ -26354,6 +26399,7 @@ varying vec3 worldColorPosition;`
         const now = performance.now();
         this.updateFlight(now);
         this.worldModel.animate(now);
+        this.worldBoundaries.animate(now);
         this.controls.update();
         this.enforceCameraCollision();
         this.lastCameraPosition.copy(this.camera.position);
@@ -26364,6 +26410,7 @@ varying vec3 worldColorPosition;`
             this.controls.target,
             this.renderer.domElement.clientHeight
           );
+          this.worldBoundaries.update(this.camera, this.controls.target, this.renderer.domElement.clientHeight);
         }
         this.renderer.render(this.scene, this.camera);
       });
@@ -26498,6 +26545,7 @@ varying vec3 worldColorPosition;`
         }
       });
       el("world-model-retry").addEventListener("click", () => this.worldModel.retry());
+      el("world-boundary-retry").addEventListener("click", () => this.worldBoundaries.retry());
       input("world-cutaway").addEventListener("input", () => this.appearance());
       el("retry").addEventListener("click", () => {
         if (this.selectedKey) void this.load(this.selectedKey);
@@ -26671,6 +26719,11 @@ varying vec3 worldColorPosition;`
       this.pinchDistance = void 0;
       this.selectedKey = key;
       this.worldModel.clear();
+      this.worldBoundaries.clear();
+      this.boundaryModelUrl = void 0;
+      this.worldBoundaryManifest = void 0;
+      el("world-boundary-status").hidden = true;
+      el("world-boundary-retry").hidden = true;
       this.blockModelUrl = void 0;
       this.worldModelManifest = void 0;
       el("world-model-status").textContent = "World-model export not available (or map still loading).";
@@ -26775,6 +26828,7 @@ varying vec3 worldColorPosition;`
         this.home(true);
         el("loading").hidden = true;
         this.blockModelUrl = manifest.cubeModel && manifestUrl ? new URL(manifest.cubeModel.url, manifestUrl).href : void 0;
+        this.boundaryModelUrl = manifest.boundaryModel && manifestUrl ? new URL(manifest.boundaryModel.url, manifestUrl).href : void 0;
         this.updateWorldModel();
       } catch (error) {
         if (generation !== this.generation) return;
@@ -26836,6 +26890,8 @@ varying vec3 worldColorPosition;`
       this.worldModel.setCubeSizeFactors(factors.near, factors.far);
     }
     updateWorldModel() {
+      this.worldBoundaries.clear();
+      this.worldBoundaryManifest = void 0;
       this.worldModelManifest = void 0;
       el("near-cube-size-label").hidden = !this.blockModelUrl;
       el("cube-size-label").hidden = !this.blockModelUrl;
@@ -26858,6 +26914,14 @@ varying vec3 worldColorPosition;`
           mapBounds: this.map.coordinates,
           texture: this.texture
         });
+        if (this.boundaryModelUrl)
+          void this.worldBoundaries.enable({
+            url: this.boundaryModelUrl,
+            mapKey: this.selectedKey,
+            centerX: (m.originX + m.maxX) / 2,
+            centerY: (m.originY + m.maxY) / 2,
+            mapBounds: this.map.coordinates
+          });
       }
       this.appearance();
     }
@@ -27138,6 +27202,14 @@ varying vec3 worldColorPosition;`
         opacity: value("terrain-opacity"),
         lighting: checked("shading"),
         wireframe: checked("wireframe"),
+        slopes: false,
+        cutHeightCm: cutHeight * 100
+      });
+      this.worldBoundaries.setAppearance({
+        exaggeration: 1,
+        opacity: 1,
+        lighting: false,
+        wireframe: false,
         slopes: false,
         cutHeightCm: cutHeight * 100
       });

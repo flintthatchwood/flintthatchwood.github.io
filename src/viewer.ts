@@ -126,6 +126,23 @@ export class Viewer {
     private pinchDistance?: number;
     private lastHover = 0;
     private blockModelUrl?: string;
+    private boundaryModelUrl?: string;
+    private worldBoundaryManifest?: WorldModelManifest;
+    private worldBoundaries = new WorldModelLayer(status => {
+        const label = el('world-boundary-status');
+        label.hidden = false;
+        label.textContent = `World boundaries: ${status.text}`;
+        label.toggleAttribute('data-debug', !status.retry);
+        el('world-boundary-retry').hidden = !status.retry;
+        if (status.manifest && status.manifest !== this.worldBoundaryManifest) {
+            this.worldBoundaryManifest = status.manifest;
+            const slider = input('world-cutaway');
+            const uncut = slider.value === slider.max;
+            slider.max = String(Math.max(Number(slider.max), Math.ceil(status.manifest.bounds.maxZ / 100) + 1));
+            if (uncut) slider.value = slider.max;
+            this.appearance();
+        }
+    });
     private worldModelManifest?: WorldModelManifest;
     private lastWorldCheck = 0;
     private worldModel = new WorldModelLayer((status) => {
@@ -172,7 +189,8 @@ export class Viewer {
                 Math.floor(Math.min(m.bounds.minZ, this.manifest?.minZ ?? m.bounds.minZ) / 100) - 1,
             );
             slider.max = String(
-                Math.ceil(Math.max(m.bounds.maxZ, this.manifest?.maxZ ?? m.bounds.maxZ) / 100) + 1,
+                Math.ceil(Math.max(m.bounds.maxZ, this.manifest?.maxZ ?? m.bounds.maxZ,
+                    this.worldBoundaryManifest?.bounds.maxZ ?? m.bounds.maxZ) / 100) + 1,
             );
             slider.value = slider.max;
             el('world-cutaway-label').hidden = false;
@@ -251,6 +269,7 @@ export class Viewer {
         this.scene.add(
             this.resources,
             this.worldModel.group,
+            this.worldBoundaries.group,
             new THREE.AmbientLight(0xffffff, 0.65),
         );
         const sun = new THREE.DirectionalLight(0xfff3dd, 0.8);
@@ -276,6 +295,7 @@ export class Viewer {
             const now = performance.now();
             this.updateFlight(now);
             this.worldModel.animate(now);
+            this.worldBoundaries.animate(now);
             this.controls.update();
             this.enforceCameraCollision();
             this.lastCameraPosition.copy(this.camera.position);
@@ -286,6 +306,7 @@ export class Viewer {
                     this.controls.target,
                     this.renderer.domElement.clientHeight,
                 );
+                this.worldBoundaries.update(this.camera, this.controls.target, this.renderer.domElement.clientHeight);
             }
             this.renderer.render(this.scene, this.camera);
         });
@@ -430,6 +451,7 @@ export class Viewer {
             }
         });
         el('world-model-retry').addEventListener('click', () => this.worldModel.retry());
+        el('world-boundary-retry').addEventListener('click', () => this.worldBoundaries.retry());
         input('world-cutaway').addEventListener('input', () => this.appearance());
         el('retry').addEventListener('click', () => {
             if (this.selectedKey) void this.load(this.selectedKey);
@@ -613,6 +635,11 @@ export class Viewer {
         this.pinchDistance = undefined;
         this.selectedKey = key;
         this.worldModel.clear();
+        this.worldBoundaries.clear();
+        this.boundaryModelUrl = undefined;
+        this.worldBoundaryManifest = undefined;
+        el('world-boundary-status').hidden = true;
+        el('world-boundary-retry').hidden = true;
         this.blockModelUrl = undefined;
         this.worldModelManifest = undefined;
         el('world-model-status').textContent =
@@ -723,6 +750,9 @@ export class Viewer {
             this.blockModelUrl = manifest.cubeModel && manifestUrl
                 ? new URL(manifest.cubeModel.url, manifestUrl).href
                 : undefined;
+            this.boundaryModelUrl = manifest.boundaryModel && manifestUrl
+                ? new URL(manifest.boundaryModel.url, manifestUrl).href
+                : undefined;
             this.updateWorldModel();
         } catch (error) {
             if (generation !== this.generation) return;
@@ -786,6 +816,8 @@ export class Viewer {
     }
 
     private updateWorldModel(): void {
+        this.worldBoundaries.clear();
+        this.worldBoundaryManifest = undefined;
         this.worldModelManifest = undefined;
         el('near-cube-size-label').hidden = !this.blockModelUrl;
         el('cube-size-label').hidden = !this.blockModelUrl;
@@ -809,6 +841,14 @@ export class Viewer {
                 mapBounds: this.map.coordinates,
                 texture: this.texture,
             });
+            if (this.boundaryModelUrl)
+                void this.worldBoundaries.enable({
+                    url: this.boundaryModelUrl,
+                    mapKey: this.selectedKey,
+                    centerX: (m.originX + m.maxX) / 2,
+                    centerY: (m.originY + m.maxY) / 2,
+                    mapBounds: this.map.coordinates,
+                });
         }
         this.appearance();
     }
@@ -1119,6 +1159,14 @@ export class Viewer {
             opacity: value('terrain-opacity'),
             lighting: checked('shading'),
             wireframe: checked('wireframe'),
+            slopes: false,
+            cutHeightCm: cutHeight * 100,
+        });
+        this.worldBoundaries.setAppearance({
+            exaggeration: 1,
+            opacity: 1,
+            lighting: false,
+            wireframe: false,
             slopes: false,
             cutHeightCm: cutHeight * 100,
         });

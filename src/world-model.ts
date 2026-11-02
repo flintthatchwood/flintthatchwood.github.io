@@ -106,7 +106,7 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
     )
         throw new Error('Invalid world-model manifest.');
     const b = bounds(v.bounds, progressive);
-    const tileSize = number(v.tileSizeCm, 1, 1_000_000);
+    const tileSize = number(v.tileSizeCm, 1, statistics.representation === 'world-boundaries' ? 100_000_000 : 1_000_000);
     if (
         !progressive &&
         (Math.ceil((b.maxX - b.minX) / tileSize) > 2048 ||
@@ -589,6 +589,30 @@ varying vec3 worldColorPosition;`,
     material.customProgramCacheKey = () => 'world-nearby-color-v3';
 }
 
+function energyField(material: SurfaceMaterial, time: { value: number }): void {
+    Object.assign(material, { extensions: { derivatives: true } });
+    material.onBeforeCompile = shader => {
+        shader.uniforms.worldFieldTime = time;
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\nvarying vec3 worldFieldPosition;')
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\nworldFieldPosition = position;');
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\nuniform float worldFieldTime;\nvarying vec3 worldFieldPosition;')
+            .replace('#include <color_fragment>', `#include <color_fragment>
+vec3 fieldNormal = abs(cross(dFdx(worldFieldPosition), dFdy(worldFieldPosition)));
+vec2 fieldUv = fieldNormal.y > max(fieldNormal.x, fieldNormal.z) ? worldFieldPosition.xz :
+    (fieldNormal.x > fieldNormal.z ? worldFieldPosition.zy : worldFieldPosition.xy);
+vec2 fieldCell = fieldUv / 8.0;
+vec2 fieldWidth = max(fwidth(fieldCell), vec2(0.0001));
+vec2 fieldEdge = abs(fract(fieldCell - 0.5) - 0.5) / fieldWidth;
+float fieldGrid = 1.0 - clamp(min(fieldEdge.x, fieldEdge.y), 0.0, 1.0);
+float fieldPulse = 0.5 + 0.5 * sin(worldFieldPosition.y * 0.12 - worldFieldTime * 1.2);
+diffuseColor.rgb *= 0.85 + 0.25 * fieldPulse + 0.35 * fieldGrid;
+diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
+    };
+    material.customProgramCacheKey = () => 'authored-world-energy-field-v1';
+}
+
 export class WorldModelLayer {
     readonly group = new THREE.Group();
     readonly clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e9);
@@ -716,17 +740,19 @@ export class WorldModelLayer {
             : 1e9;
         for (let flag = 0; flag < this.materials.length; flag++) {
             const material = this.materials[flag];
+            const boundary = this.manifest?.statistics.representation === 'world-boundaries';
             const mapped = !!(flag & 1) || flag === 4,
                 walkable = !!(flag & 2);
             material.color.set(
-                appearance.slopes && walkable
+                boundary ? '#72dbf6' : appearance.slopes && walkable
                     ? '#3edc65'
                     : this.context?.texture
                       ? '#ffffff'
                       : '#394149',
             );
-            material.opacity = mapped ? appearance.opacity : 1;
-            material.transparent = material.opacity < 1;
+            material.opacity = boundary ? 0.28 * appearance.opacity : mapped ? appearance.opacity : 1;
+            material.transparent = boundary || material.opacity < 1;
+            material.depthWrite = !boundary;
             material.polygonOffset = appearance.wireframe;
             material.polygonOffsetFactor = 1;
             material.polygonOffsetUnits = 1;
@@ -795,10 +821,12 @@ export class WorldModelLayer {
         const { mapBounds: c, centerX, centerY } = context;
         const clippingPlanes = [
             this.clipPlane,
+            ...(this.manifest?.statistics.representation === 'world-boundaries' ? [] : [
             new THREE.Plane(new THREE.Vector3(1, 0, 0), (centerX - c.minX) / 100),
             new THREE.Plane(new THREE.Vector3(-1, 0, 0), (c.maxX - centerX) / 100),
             new THREE.Plane(new THREE.Vector3(0, 0, 1), (centerY - c.minY) / 100),
             new THREE.Plane(new THREE.Vector3(0, 0, -1), (c.maxY - centerY) / 100),
+            ]),
         ];
         const old = this.materials;
         const blockSides = this.manifest?.statistics.representation === 'blocks';
@@ -810,15 +838,17 @@ export class WorldModelLayer {
               )
             : undefined;
         this.materials = Array.from({ length: blockSides ? 5 : 4 }, (_, flag) => {
+            const boundary = this.manifest?.statistics.representation === 'world-boundaries';
             const common = {
-                map: context.texture ?? null,
+                map: boundary ? null : context.texture ?? null,
                 side: THREE.DoubleSide,
                 clippingPlanes,
             };
-            const material = this.appearance.lighting
+            const material = this.appearance.lighting && !boundary
                 ? new THREE.MeshPhongMaterial({ ...common, flatShading: true, specular: '#000000' })
                 : new THREE.MeshBasicMaterial(common);
-            if (!(flag & 1) && texel) colorCoveredSurface(material, texel);
+            if (boundary) energyField(material, this.morphTime);
+            else if (!(flag & 1) && texel) colorCoveredSurface(material, texel);
             return material;
         });
         for (const item of this.resident.values()) item.mesh.material = this.materials;

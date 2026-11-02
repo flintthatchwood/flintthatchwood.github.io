@@ -160,6 +160,18 @@ Some legacy tiles own only neighbor-boundary faces while having no own solid
 cells; publication verifies those faces are covered by the new solid-owning
 neighbor rather than requiring artificial geometry in the empty tile.
 
+### Authored world-boundary fields
+
+The optional terrain `boundaryModel` link loads original boundary triangles as a
+separate `world-boundaries` layer, not solid terrain or voxel occupancy. The layer
+preserves irregular curtains and authored ceilings without adding rectangular
+map walls or capping mountains. A cyan translucent grid and slow energy pulse
+identify the field; terrain lighting, opacity, mesh-edge controls and cube sizes
+do not change it. Depth testing hides fields behind opaque terrain, while
+disabled depth writes avoid making translucent fields occlude other geometry.
+Cutaway still applies, and the cutaway range includes authored sky fields.
+Boundary loading failures have their own visible status and retry control.
+
 ### Shared hierarchy streaming
 
 CPU selection traverses the active frontier, not all source triangles, at most

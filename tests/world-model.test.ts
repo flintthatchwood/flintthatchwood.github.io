@@ -128,6 +128,43 @@ test('world manifests require exact identity, bounded LODs and nominal nonoverla
     }
 });
 
+test('authored world curtains use animated translucent materials without map-image clipping or terrain lighting', async () => {
+    const manifest = fixture();
+    manifest.statistics = { representation: 'world-boundaries', complete: true };
+    const states: WorldModelStatus[] = [];
+    const layer = new WorldModelLayer(status => states.push(status), async url =>
+        String(url).endsWith('.json')
+            ? new Response(JSON.stringify(manifest))
+            : new Response(binary(String(url).includes('1.awm') ? 1 : 0, 0)));
+    await layer.enable({ url: 'https://example.test/boundaries.json', mapKey: 'Island',
+        centerX: 0, centerY: 0, mapBounds });
+    layer.update(view(), new THREE.Vector3(1, 1, .5), 800);
+    await until(() => layer.meshes.length === 2);
+    const mesh = layer.meshes[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial[]>;
+    const material = mesh.material[0];
+    assert.ok(material instanceof THREE.MeshBasicMaterial);
+    assert.equal(material.transparent, true);
+    assert.equal(material.depthWrite, false);
+    assert.equal(material.side, THREE.DoubleSide);
+    assert.equal(material.opacity, .28);
+    assert.equal(material.map, null);
+    assert.deepEqual(material.clippingPlanes, [layer.clipPlane]);
+    const shader: THREE.Shader = { uniforms: {}, vertexShader: THREE.ShaderLib.basic.vertexShader,
+        fragmentShader: THREE.ShaderLib.basic.fragmentShader };
+    material.onBeforeCompile(shader, {} as THREE.WebGLRenderer);
+    assert.match(shader.fragmentShader, /worldFieldTime/);
+    assert.match(shader.fragmentShader, /fieldGrid/);
+    assert.doesNotMatch(shader.fragmentShader, /worldColorTexel/);
+    layer.animate(1500);
+    assert.equal(shader.uniforms.worldFieldTime.value, 1.5);
+    layer.setAppearance({ exaggeration: 1, opacity: .5, lighting: true, wireframe: false, slopes: true, cutHeightCm: 200 });
+    assert.equal(material.opacity, .14);
+    assert.equal(material.transparent, true);
+    assert.equal(material.depthWrite, false);
+    assert.ok(!states.at(-1)?.retry);
+    layer.clear();
+});
+
 test('AWM1 preserves world coordinates, image UVs, outward winding and original source flags', () => {
     const tile = fixture().tiles[0],
         original = binary(),
