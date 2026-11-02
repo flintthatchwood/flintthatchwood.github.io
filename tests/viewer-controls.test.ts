@@ -5,6 +5,10 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync('root/index.html', 'utf8');
 const viewer = readFileSync('src/viewer.ts', 'utf8');
 
+test('renderer preserves distant cube depth precision without sacrificing close camera clearance', () => {
+    assert.match(viewer, /new THREE\.WebGLRenderer\(\{[^}]*logarithmicDepthBuffer: true/);
+});
+
 test('movement modes, middle-click toggle, upright default and persistent cursor label are wired', () => {
     assert.match(html, /value="world" selected>World/);
     assert.match(html, /id="camera-invert-y" type="checkbox" \/>/);

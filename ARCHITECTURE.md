@@ -16,6 +16,10 @@ validation.
 The viewer revalidates `https://arkres.blob.core.windows.net/terrain/index.json`
 with `cache: no-cache`. This site catalog points to immutable per-map indexes at
 `maps/<key>/<sha256>.json`, which pin the resource JSON, image and terrain metadata.
+The renderer uses a logarithmic depth buffer to prevent distant cube faces from
+fighting for depth while retaining the close near plane needed for cave navigation.
+Orthographic views retain their normal linear depth.
+
 All map content is Blob-hosted; Pages deploys only renderer files. Versioned
 indexes, JSON, images and meshes use normal HTTP caching with one-year immutable
 headers. Shared content-addressed files are not duplicated between map versions.

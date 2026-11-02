@@ -26022,7 +26022,7 @@ varying vec3 worldColorPosition;`
       this.loader = new DataLoader();
       this.world = new World();
       this.scene = new Scene();
-      this.renderer = new WebGLRenderer({ antialias: true });
+      this.renderer = new WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
       this.camera = new OrthographicCamera(-1, 1, 1, -1, 1, 1e6);
       this.controls = new OrbitControls(this.camera, this.renderer.domElement);
       this.movementMode = "world";
