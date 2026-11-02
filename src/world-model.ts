@@ -659,7 +659,7 @@ export class WorldModelLayer {
         this.status({ text: 'Loading continuous world-model metadata…' });
         try {
             const bytes = await boundedResponse(
-                await this.request(context.url, { signal: controller.signal, cache: 'no-store' }),
+                await this.request(context.url, { signal: controller.signal }),
                 128 * 1024 * 1024,
                 controller.signal,
                 'World model',

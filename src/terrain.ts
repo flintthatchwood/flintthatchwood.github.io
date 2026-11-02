@@ -45,17 +45,3 @@ export function validateManifest(manifest: TerrainManifest, mapKey: string): voi
     )
         throw new Error(`Invalid 3D map metadata for ${mapKey}.`);
 }
-
-export function initialRepresentation(
-    manifest: TerrainManifest,
-    requested: string | null,
-): 'cubes' | 'triangles' {
-    if (
-        (requested === 'triangles' || requested === 'progressive' || requested === 'mesh') &&
-        manifest.progressiveModel
-    )
-        return 'triangles';
-    if (manifest.cubeModel) return 'cubes';
-    if (manifest.progressiveModel) return 'triangles';
-    throw new Error(`No 3D extraction published for ${manifest.mapKey}.`);
-}

@@ -216,9 +216,9 @@
             <h1 id="map-title">ARK Resource Maps</h1>
             <div id="image-warning" class="note" role="status" hidden></div>
             <p class="note" data-debug>
-                Map-textured collision-world exterior. Covered mesh and block faces use nearby
-                map colors, with darker walls and undersides. Both world representations
-                keep a complete coarse base while loading nearby detail;
+                Map-textured collision-world exterior. Covered cube faces use nearby
+                map colors, with darker walls and undersides. Cube terrain
+                keeps a complete coarse base while loading nearby detail;
                 no heightfield fallback is used.
             </p>
             <section id="warnings" class="note" aria-label="3D data availability and warnings" data-debug>
@@ -262,14 +262,7 @@
                     <button id="camera-go">Go to ccc</button>
                 </div>
             </details>
-            <label id="world-representation-label" hidden>
-                World representation
-                <select id="world-representation">
-                    <option value="cubes" selected>Cubes</option>
-                    <option value="triangles">Triangles</option>
-                </select>
-            </label>
-            <label id="cube-size-label" hidden>
+            <label id="cube-size-label" data-debug hidden>
                 Far cube target <output id="cube-size-value">4× (loading resolution)</output>
                 <input id="cube-size" type="range" min="0" max="6" step="1" value="2" />
                 <span id="cube-size-note" class="note">Nearby resolution comes from the map export. The complete coarse base stays loaded.</span>
@@ -292,14 +285,34 @@
                 Only extracted 3D geometry is shown. World detail streams near the view. Lower Terrain opacity or use the cutaway
                 slider to reveal interior surfaces.
             </p>
-            <label><input id="shading" type="checkbox" checked />Terrain lighting</label>
-            <label><input id="wireframe" type="checkbox" />Show mesh edges</label>
+            <label data-debug><input id="shading" type="checkbox" checked />Terrain lighting</label>
+            <label data-debug><input id="wireframe" type="checkbox" />Show mesh edges</label>
             <label>
                 Terrain opacity <output id="terrain-opacity-value">100.00%</output
                 ><input id="terrain-opacity" type="range" min="0.15" max="1" step="0.05" value="1"
             /></label>
             <hr />
             <h2>Resources</h2>
+            <div class="buttons">
+                <button id="resources-all">Show all</button
+                ><button id="resources-none">Hide all</button>
+            </div>
+            <div id="resource-options"></div>
+            <div id="resource-summary" class="note" aria-live="polite"></div>
+            <label
+                >Marker size<input
+                    id="resource-size"
+                    type="range"
+                    min="1"
+                    max="12"
+                    step="1"
+                    value="5"
+            /></label>
+            <label><input id="resource-glow" type="checkbox" checked />Resource glow</label>
+            <label
+                ><input id="resource-through" type="checkbox" checked />Show through terrain
+                (caves)</label
+            >
             <label><input id="cluster-enabled" type="checkbox" checked />Enable clustering</label>
             <label
                 >Cluster radius <output id="cluster-radius-value">5000.00 cm</output
@@ -311,27 +324,6 @@
                     step="100"
                     value="5000"
             /></label>
-            <label
-                >Marker size<input
-                    id="resource-size"
-                    type="range"
-                    min="1"
-                    max="12"
-                    step="1"
-                    value="5"
-            /></label>
-            <label><input id="size-attenuation" type="checkbox" />Size attenuation</label>
-            <label><input id="resource-glow" type="checkbox" checked />Resource glow</label>
-            <label
-                ><input id="resource-through" type="checkbox" checked />Show through terrain
-                (caves)</label
-            >
-            <div class="buttons">
-                <button id="resources-all">Show all</button
-                ><button id="resources-none">Hide all</button>
-            </div>
-            <div id="resource-options"></div>
-            <div id="resource-summary" class="note" aria-live="polite"></div>
             <p class="note" data-debug>
                 Recorded XYZ, never surface-clamped. Click a marker for details. Clusters report
                 centroid coordinates.

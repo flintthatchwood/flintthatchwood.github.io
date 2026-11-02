@@ -33,10 +33,17 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      - name: Prepare renderer-only site
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force './.work/output/site' | Out-Null
+          Get-ChildItem -LiteralPath './root' -Force |
+            Where-Object Name -NotIn @('data', 'images', 'terrain') |
+            Copy-Item -Destination './.work/output/site' -Recurse -Force
       - name: List published files and sizes
         shell: pwsh
         run: |
-          Get-ChildItem -LiteralPath './root' -Recurse -Force |
+          Get-ChildItem -LiteralPath './.work/output/site' -Recurse -Force |
             Sort-Object FullName |
             Select-Object FullName, Length |
             Format-Table -AutoSize -Wrap |
@@ -44,8 +51,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload root directory
-          path: './root'
+          path: './.work/output/site'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

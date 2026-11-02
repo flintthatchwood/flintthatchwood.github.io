@@ -7,7 +7,7 @@ import { groupedMaps, mapKeyFromUrl, mapUrl, orderedMaps } from './map-navigatio
 import { MapData } from './data/types.js';
 import { World, type WorldPoint } from './world/World.js';
 import { resourcePositions } from './resource-positions.js';
-import { freshJson as json } from './metadata.js';
+import { json } from './metadata.js';
 import { WorldModelLayer, type WorldModelManifest } from './world-model.js';
 import { cameraCodeDirection, decodeCameraCode, encodeCameraCode } from './camera-code.js';
 import { changeProjection, fitMapCamera, resizeMapCamera, worldUnitsPerPixel, type MapCamera, type Projection } from './camera-view.js';
@@ -22,7 +22,7 @@ import {
     MIN_FOCUS_DISTANCE,
     wheelPixels,
 } from './surface-navigation.js';
-import { initialRepresentation, validateManifest, type TerrainManifest } from './terrain.js';
+import { validateManifest, type TerrainManifest } from './terrain.js';
 
 const el = (id: string): HTMLElement => {
     const result = document.getElementById(id);
@@ -124,7 +124,6 @@ export class Viewer {
     private pinchDistance?: number;
     private lastHover = 0;
     private blockModelUrl?: string;
-    private progressiveModelUrl?: string;
     private worldModelManifest?: WorldModelManifest;
     private lastWorldCheck = 0;
     private worldModel = new WorldModelLayer((status) => {
@@ -372,12 +371,6 @@ export class Viewer {
                 throw new Error('Unsupported camera projection.');
             this.setProjection(projection);
         });
-        el('world-representation').addEventListener('change', () => {
-            const url = new URL(location.href);
-            url.searchParams.set('world', (el('world-representation') as HTMLSelectElement).value);
-            history.replaceState(history.state, '', url);
-            this.updateWorldModel();
-        });
         el('camera-copy').addEventListener('click', () => {
             void (async () => {
                 let captured = false;
@@ -447,7 +440,6 @@ export class Viewer {
             'resource-size',
             'resource-glow',
             'resource-through',
-            'size-attenuation',
             'terrain-opacity',
             'shading',
             'wireframe',
@@ -617,8 +609,6 @@ export class Viewer {
         this.selectedKey = key;
         this.worldModel.clear();
         this.blockModelUrl = undefined;
-        (el('world-representation') as HTMLSelectElement).value = 'cubes';
-        el('world-representation-label').hidden = true;
         this.worldModelManifest = undefined;
         el('world-model-status').textContent =
             'World-model export not available (or map still loading).';
@@ -660,27 +650,18 @@ export class Viewer {
             const info = maps.find((map) => map.key === key);
             if (!info) throw new Error(`Unknown map ${key}`);
             history.replaceState(history.state, '', mapUrl(new URL(location.href), key));
-            // This request is abortable, unlike the legacy DataLoader.loadMapByName path.
-            const dataUrl =
-                info.dataUrl.startsWith('http') || info.dataUrl.startsWith('/')
-                    ? info.dataUrl
-                    : `./data/${info.dataUrl.replace(/^\.\//, '')}`;
+            const version = await this.loader.loadMapVersion(key, signal);
             const raw = await json<ConstructorParameters<typeof MapData>[0]>(
-                new URL(dataUrl, document.baseURI).href,
+                version.dataUrl,
                 signal,
             );
             const map = new MapData(raw);
             if (map.mapKey !== key || !map.imageName)
                 throw new Error('Map metadata/image is missing or mismatched.');
-            const indexUrl = new URL('./terrain/index.json', document.baseURI).href;
-            let manifestUrl = indexUrl;
+            const manifestUrl = version.terrainUrl;
             let manifest: TerrainManifest;
             try {
-                const index = await json<{ version: number; maps: { mapKey: string; url: string }[] }>(indexUrl, signal);
-                if (index.version !== 1 || !Array.isArray(index.maps)) throw new Error('Invalid terrain index.');
-                const entry = index.maps.find((item) => item.mapKey === key);
-                if (!entry) throw new Error(`No terrain metadata published for ${info.name}.`);
-                manifestUrl = new URL(entry.url, indexUrl).href;
+                if (!manifestUrl) throw new Error(`No terrain metadata published for ${info.name}.`);
                 manifest = await json<TerrainManifest>(manifestUrl, signal);
                 validateManifest(manifest, key);
             } catch (error) {
@@ -689,7 +670,7 @@ export class Viewer {
                 manifest.warnings.push(`Terrain metadata unavailable: ${error instanceof Error ? error.message : String(error)}. Showing a flat map.`);
             }
             const image = await fetchMapImage(
-                new URL(`./images/${map.imageName}`, document.baseURI),
+                new URL(version.imageUrl),
                 signal,
             );
             if (image.kind === 'image') {
@@ -710,7 +691,7 @@ export class Viewer {
             } else {
                 el('image-warning').hidden = false;
                 el('image-warning').textContent =
-                    `Map image unavailable (HTTP ${image.status}: ${map.imageName}). Showing untextured 3D geometry; recorded resource positions are unchanged.`;
+                    `Map image unavailable (HTTP ${image.status}: ${version.imageUrl}). Showing untextured 3D geometry; recorded resource positions are unchanged.`;
             }
             this.map = map;
             this.manifest = manifest;
@@ -734,20 +715,9 @@ export class Viewer {
             this.buildResources();
             this.home(true);
             el('loading').hidden = true;
-            this.blockModelUrl = manifest.cubeModel
+            this.blockModelUrl = manifest.cubeModel && manifestUrl
                 ? new URL(manifest.cubeModel.url, manifestUrl).href
                 : undefined;
-            this.progressiveModelUrl = manifest.progressiveModel
-                ? new URL(manifest.progressiveModel.url, manifestUrl).href
-                : undefined;
-            const representation = el('world-representation') as HTMLSelectElement;
-            representation.value = manifest.cubeModel || manifest.progressiveModel
-                ? initialRepresentation(manifest, new URL(location.href).searchParams.get('world'))
-                : 'cubes';
-            el('world-representation-label').hidden =
-                !this.blockModelUrl && !this.progressiveModelUrl;
-            for (const option of Array.from(representation.options))
-                option.disabled = option.value === 'cubes' ? !this.blockModelUrl : !this.progressiveModelUrl;
             this.updateWorldModel();
         } catch (error) {
             if (generation !== this.generation) return;
@@ -762,13 +732,6 @@ export class Viewer {
             this.texture = undefined;
             this.error(error);
         }
-    }
-
-    private get blockMode(): boolean {
-        return (
-            !!this.blockModelUrl &&
-            (el('world-representation') as HTMLSelectElement).value === 'cubes'
-        );
     }
 
     private clearFlatMap(): void {
@@ -818,13 +781,10 @@ export class Viewer {
 
     private updateWorldModel(): void {
         this.worldModelManifest = undefined;
-        el('cube-size-label').hidden = !this.blockMode;
+        el('cube-size-label').hidden = !this.blockModelUrl;
         this.updateCubeSizeControl();
         el('world-cutaway-label').hidden = true;
-        const modelUrl =
-            (el('world-representation') as HTMLSelectElement).value === 'triangles'
-                ? this.progressiveModelUrl
-                : this.blockModelUrl;
+        const modelUrl = this.blockModelUrl;
         if (!modelUrl || !this.manifest || !this.map) {
             this.worldModel.clear();
             el('world-model-status').textContent =
@@ -1060,6 +1020,7 @@ export class Viewer {
                 new THREE.PointsMaterial({
                     color: nodes[0].colorHex,
                     map: this.marker,
+                    sizeAttenuation: false,
                     transparent: true,
                     alphaTest: 0.2,
                     clippingPlanes: [this.worldModel.clipPlane],
@@ -1071,6 +1032,7 @@ export class Viewer {
                 new THREE.PointsMaterial({
                     color: nodes[0].colorHex,
                     map: this.glow,
+                    sizeAttenuation: false,
                     transparent: true,
                     opacity: 0.5,
                     blending: THREE.AdditiveBlending,
@@ -1159,8 +1121,6 @@ export class Viewer {
             layer.glow.material.size = value('resource-size') * 2.5;
             layer.points.material.depthTest = layer.glow.material.depthTest =
                 !checked('resource-through');
-            layer.points.material.sizeAttenuation = layer.glow.material.sizeAttenuation =
-                checked('size-attenuation');
         }
         this.updateVisibility(false);
     }

@@ -1,13 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import type { IndexData } from '../src/data/types.js';
 import { groupedMaps, mapKeyFromUrl, mapUrl, orderedMaps } from '../src/map-navigation.js';
 
 const maps = [
-    { key: 'Aberration_WP', name: 'Aberration', dataUrl: 'game/Aberration_WP.json' },
-    { key: 'TheIsland_WP', name: 'The Island', dataUrl: 'game/TheIsland_WP.json' },
-    { key: 'Extinction_WP', name: 'Extinction', dataUrl: 'game/Extinction_WP.json' },
+    { key: 'Aberration_WP', name: 'Aberration', indexUrl: 'maps/aberration/v1.json' },
+    { key: 'TheIsland_WP', name: 'The Island', indexUrl: 'maps/theisland/v1.json' },
+    { key: 'Extinction_WP', name: 'Extinction', indexUrl: 'maps/extinction/v1.json' },
 ];
 
 test('The Island comes first without mutating the index', () => {
@@ -20,7 +19,15 @@ test('The Island comes first without mutating the index', () => {
 });
 
 test('published maps are grouped in the specified canon and alphabetical DLC order', () => {
-    const index: IndexData = JSON.parse(readFileSync('root/data/index.json', 'utf8'));
+    const index: IndexData = { resourceTypes: [], maps: [
+        ['Svartalfheim_WP', 'Svartalfheim'], ['Genesis_WP_Ocean', 'Genesis (Ocean)'],
+        ['Valguero_WP', 'Valguero'], ['TheCenter_WP', 'The Center'],
+        ['Ragnarok_WP', 'Ragnarok'], ['Astraeos_WP', 'Astraeos'],
+        ['Forglar_WP', 'Forglar'], ['Survive_WP', 'Survive The Night'],
+        ['Genesis_WP_Main', 'Genesis (Main)'], ['LostColony_WP', 'Lost Colony'],
+        ['Extinction_WP', 'Extinction'], ['Aberration_WP', 'Aberration'],
+        ['ScorchedEarth_WP', 'Scorched Earth'], ['TheIsland_WP', 'The Island'],
+    ].map(([key, name]) => ({ key, name, indexUrl: `maps/${key}/v1.json` })) };
     const originalKeys = index.maps.map((map) => map.key);
     const groups = groupedMaps(index.maps);
     assert.deepEqual(
@@ -59,8 +66,8 @@ test('published maps are grouped in the specified canon and alphabetical DLC ord
 
 test('unknown maps remain available in Other and empty sections are omitted', () => {
     const extra = [
-        { key: 'Zeta_WP', name: 'Zeta', dataUrl: 'mods/zeta.json' },
-        { key: 'Alpha_WP', name: 'Alpha', dataUrl: 'mods/alpha.json' },
+        { key: 'Zeta_WP', name: 'Zeta', indexUrl: 'maps/zeta/v1.json' },
+        { key: 'Alpha_WP', name: 'Alpha', indexUrl: 'maps/alpha/v1.json' },
     ];
     assert.deepEqual(groupedMaps(extra), [{ label: 'Other', maps: [extra[1], extra[0]] }]);
     assert.deepEqual(groupedMaps([]), []);
@@ -108,7 +115,7 @@ test('map URL updates canonicalize repeated parameters and encode map keys', () 
     );
     assert.deepEqual(updated.searchParams.getAll('map'), ['Mod Map & Cave']);
     assert.equal(
-        mapKeyFromUrl(updated, [{ key: 'Mod Map & Cave', name: 'Mod', dataUrl: 'mod.json' }]),
+        mapKeyFromUrl(updated, [{ key: 'Mod Map & Cave', name: 'Mod', indexUrl: 'maps/mod/v1.json' }]),
         'Mod Map & Cave',
     );
 });

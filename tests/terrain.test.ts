@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initialRepresentation, validateManifest, type TerrainManifest } from '../src/terrain.js';
+import { validateManifest, type TerrainManifest } from '../src/terrain.js';
 
 function fixture(): TerrainManifest {
     return {
@@ -29,22 +29,6 @@ test('3D map metadata needs no sampled height grid', () => {
     delete unavailable.progressiveModel;
     delete unavailable.cubeModel;
     assert.doesNotThrow(() => validateManifest(unavailable, 'Island'));
-});
-
-test('cubes are default and legacy triangle URLs map to the only triangle option', () => {
-    const m = fixture();
-    assert.equal(initialRepresentation(m, null), 'cubes');
-    assert.equal(initialRepresentation(m, 'triangles'), 'triangles');
-    assert.equal(initialRepresentation(m, 'progressive'), 'triangles');
-    m.progressiveModel!.default = true;
-    assert.equal(initialRepresentation(m, null), 'cubes');
-    assert.equal(initialRepresentation(m, 'mesh'), 'triangles');
-    assert.equal(initialRepresentation(m, 'blocks'), 'cubes');
-    assert.doesNotThrow(() => validateManifest(m, 'Island'));
-    delete m.cubeModel;
-    assert.equal(initialRepresentation(m, null), 'triangles');
-    delete m.progressiveModel;
-    assert.throws(() => initialRepresentation(m, null), /No 3D extraction/);
 });
 
 test('3D map metadata rejects old heightfields and malformed bounds or links', () => {

@@ -74,9 +74,11 @@ test('retired terrain controls have no markup or viewer wiring', () => {
 
 test('panel diagnostics are debug-only without hiding actionable failures', () => {
     assert.match(html, /body:not\(\.show-debug\) \[data-debug\]/);
-    for (const id of ['warnings', 'world-model-status', 'world-model-details']) {
+    for (const id of ['warnings', 'world-model-status', 'world-model-details', 'cube-size-label']) {
         assert.match(html, new RegExp(`<[^>]+id="${id}"[^>]+data-debug`));
     }
+    for (const id of ['shading', 'wireframe'])
+        assert.match(html, new RegExp(`<label data-debug><input id="${id}"`));
     for (const id of ['image-warning', 'error', 'world-model-retry']) {
         const tag = html.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))?.[0];
         assert.ok(tag, id);
@@ -84,6 +86,26 @@ test('panel diagnostics are debug-only without hiding actionable failures', () =
     }
     assert.match(viewer, /!status.retry && this.worldModel.meshes.length > 0/);
     assert.match(viewer, /classList.toggle\('show-debug', checked\('debug-toggle'\)\)/);
+});
+
+test('resource markers and glow use fixed screen sizes without an attenuation control', () => {
+    assert.ok(!html.includes('size-attenuation'));
+    assert.ok(!html.includes('Size attenuation'));
+    assert.ok(!viewer.includes('size-attenuation'));
+    for (const texture of ['marker', 'glow'])
+        assert.match(viewer, new RegExp(`map: this\\.${texture},\\s+sizeAttenuation: false`));
+    assert.match(viewer, /layer\.points\.material\.size = value\('resource-size'\)/);
+    assert.match(viewer, /layer\.glow\.material\.size = value\('resource-size'\) \* 2\.5/);
+});
+
+test('clustering controls follow the resource list and summary', () => {
+    const list = html.indexOf('id="resource-options"');
+    const summary = html.indexOf('id="resource-summary"');
+    const enabled = html.indexOf('id="cluster-enabled"');
+    const radius = html.indexOf('id="cluster-radius"');
+    assert.ok(list >= 0 && summary > list && enabled > summary && radius > enabled);
+    for (const id of ['cluster-enabled', 'cluster-radius'])
+        assert.equal(html.match(new RegExp(`id="${id}"`, 'g'))?.length, 1);
 });
 
 test('viewer uses extracted geometry or an explicit flat map, never sampled heightfield tiles', () => {
@@ -108,12 +130,16 @@ test('viewer uses extracted geometry or an explicit flat map, never sampled heig
     assert.ok(!html.includes('the heightfield fills uncovered'));
 });
 
-test('only cubes and triangles are offered; cube sizing and clipboard actions are public controls', () => {
-    const select = html.match(/<select id="world-representation">([\s\S]*?)<\/select>/)![1];
-    assert.deepEqual([...select.matchAll(/<option[^>]*value="([^"]+)"/g)].map(m => m[1]), ['cubes', 'triangles']);
-    assert.match(select, /value="cubes" selected>Cubes/);
-    assert.match(select, /value="triangles">Triangles/);
-    for (const id of ['camera-copy', 'camera-paste', 'camera-status', 'cube-size-label']) {
+test('viewer is cube-only without representation selection; clipboard remains public and cube sizing is wired', () => {
+    assert.ok(!html.includes('world-representation'));
+    assert.ok(!html.includes('World representation'));
+    assert.ok(!viewer.includes('world-representation'));
+    assert.ok(!viewer.includes('progressiveModel'));
+    assert.ok(!viewer.includes("searchParams.get('world')"));
+    assert.match(viewer, /this.blockModelUrl = manifest.cubeModel/);
+    assert.match(viewer, /const modelUrl = this.blockModelUrl;/);
+    assert.match(viewer, /el\('cube-size-label'\).hidden = !this.blockModelUrl/);
+    for (const id of ['camera-copy', 'camera-paste', 'camera-status']) {
         const tag = html.match(new RegExp(`<[^>]+id="${id}"[^>]*>`))![0];
         assert.ok(!tag.includes('data-debug'));
     }

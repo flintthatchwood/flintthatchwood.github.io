@@ -1,31 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { metalResource } from './fixtures/resources.js';
 import { cluster } from '../src/clustering/clustering.js';
 import { RBush3D } from '../src/clustering/RBush3D.js';
 
-interface MapData {
-    mapKey: string;
-    coordinates: {
-        worldSize: number;
-        offsetX: number;
-        offsetY: number;
-        offsetZ: number;
-    };
-    resources: Array<{
-        resourceType: string;
-        points: number[][]; // Array of [x, y, z] arrays
-    }>;
-}
-
-test('DBSCAN Clustering with Aberration metal resources', async (t) => {
-    // Load Aberration map data
-    const dataPath = 'root/data/game/Aberration_WP.json';
-    const mapData: MapData = JSON.parse(readFileSync(dataPath, 'utf-8'));
-
-    // Find metal resources
-    const metalResource = mapData.resources.find((r) => r.resourceType === 'Metal');
-    assert.ok(metalResource, 'Should have Metal resources');
+test('DBSCAN clustering with deterministic resource fixtures', async (t) => {
 
     // Convert to Point3D format for clustering
     const points = metalResource.points.map((coords) => ({

@@ -69,7 +69,15 @@ export interface MapInfo {
     key: string;
     name: string;
     modName?: string;
+    indexUrl: string;
+}
+
+export interface MapVersion {
+    version: 1;
+    mapKey: string;
     dataUrl: string;
+    imageUrl: string;
+    terrainUrl: string | null;
 }
 
 export interface MapResource {

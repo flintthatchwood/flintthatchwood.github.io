@@ -1,9 +1,0 @@
-{
-  "maps": [
-    {
-      "url": "game/theisland_wp/terrain.json",
-      "mapKey": "TheIsland_WP"
-    }
-  ],
-  "version": 1
-}

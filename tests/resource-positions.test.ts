@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { metalResource } from './fixtures/resources.js';
 import { resourcePositions } from '../src/resource-positions.js';
 import type { MapResource } from '../src/data/types.js';
 
@@ -40,10 +40,8 @@ test('invalid resource positions fail explicitly', () => {
     );
 });
 
-test('all Island resources retain their original XYZ, including negative heights', () => {
-    const map: { resources: MapResource[] } = JSON.parse(
-        readFileSync('root/data/game/TheIsland_WP.json', 'utf8'),
-    );
+test('all fixture resources retain their original XYZ, including negative heights', () => {
+    const map = { resources: [metalResource] };
     let total = 0;
     let negative = 0;
     for (const resource of map.resources) {

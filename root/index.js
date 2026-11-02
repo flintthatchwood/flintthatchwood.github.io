@@ -17358,22 +17358,22 @@
     // and automatic invocation of .toJSON):
     static toJSON(track) {
       const trackType = track.constructor;
-      let json;
+      let json2;
       if (trackType.toJSON !== this.toJSON) {
-        json = trackType.toJSON(track);
+        json2 = trackType.toJSON(track);
       } else {
-        json = {
+        json2 = {
           "name": track.name,
           "times": AnimationUtils.convertArray(track.times, Array),
           "values": AnimationUtils.convertArray(track.values, Array)
         };
         const interpolation = track.getInterpolation();
         if (interpolation !== track.DefaultInterpolation) {
-          json.interpolation = interpolation;
+          json2.interpolation = interpolation;
         }
       }
-      json.type = track.ValueTypeName;
-      return json;
+      json2.type = track.ValueTypeName;
+      return json2;
     }
     InterpolantFactoryMethodDiscrete(result) {
       return new DiscreteInterpolant(this.times, this.values, this.getValueSize(), result);
@@ -17627,18 +17627,18 @@
         this.resetDuration();
       }
     }
-    static parse(json) {
-      const tracks = [], jsonTracks = json.tracks, frameTime = 1 / (json.fps || 1);
+    static parse(json2) {
+      const tracks = [], jsonTracks = json2.tracks, frameTime = 1 / (json2.fps || 1);
       for (let i = 0, n = jsonTracks.length; i !== n; ++i) {
         tracks.push(parseKeyframeTrack(jsonTracks[i]).scale(frameTime));
       }
-      const clip = new this(json.name, json.duration, tracks, json.blendMode);
-      clip.uuid = json.uuid;
+      const clip = new this(json2.name, json2.duration, tracks, json2.blendMode);
+      clip.uuid = json2.uuid;
       return clip;
     }
     static toJSON(clip) {
       const tracks = [], clipTracks = clip.tracks;
-      const json = {
+      const json2 = {
         "name": clip.name,
         "duration": clip.duration,
         "tracks": tracks,
@@ -17648,7 +17648,7 @@
       for (let i = 0, n = clipTracks.length; i !== n; ++i) {
         tracks.push(KeyframeTrack.toJSON(clipTracks[i]));
       }
-      return json;
+      return json2;
     }
     static CreateFromMorphTargetSequence(name, morphTargetSequence, fps, noLoop) {
       const numMorphTargets = morphTargetSequence.length;
@@ -17855,21 +17855,21 @@
     }
     throw new Error("THREE.KeyframeTrack: Unsupported typeName: " + typeName);
   }
-  function parseKeyframeTrack(json) {
-    if (json.type === void 0) {
+  function parseKeyframeTrack(json2) {
+    if (json2.type === void 0) {
       throw new Error("THREE.KeyframeTrack: track type undefined, can not parse");
     }
-    const trackType = getTrackTypeForValueTypeName(json.type);
-    if (json.times === void 0) {
+    const trackType = getTrackTypeForValueTypeName(json2.type);
+    if (json2.times === void 0) {
       const times = [], values = [];
-      AnimationUtils.flattenJSON(json.keys, times, values, "value");
-      json.times = times;
-      json.values = values;
+      AnimationUtils.flattenJSON(json2.keys, times, values, "value");
+      json2.times = times;
+      json2.values = values;
     }
     if (trackType.parse !== void 0) {
-      return trackType.parse(json);
+      return trackType.parse(json2);
     } else {
-      return new trackType(json.name, json.times, json.values, json.interpolation);
+      return new trackType(json2.name, json2.times, json2.values, json2.interpolation);
     }
   }
   var Cache = {
@@ -18438,8 +18438,8 @@
       data.type = this.type;
       return data;
     }
-    fromJSON(json) {
-      this.arcLengthDivisions = json.arcLengthDivisions;
+    fromJSON(json2) {
+      this.arcLengthDivisions = json2.arcLengthDivisions;
       return this;
     }
   };
@@ -18514,16 +18514,16 @@
       data.aRotation = this.aRotation;
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.aX = json.aX;
-      this.aY = json.aY;
-      this.xRadius = json.xRadius;
-      this.yRadius = json.yRadius;
-      this.aStartAngle = json.aStartAngle;
-      this.aEndAngle = json.aEndAngle;
-      this.aClockwise = json.aClockwise;
-      this.aRotation = json.aRotation;
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.aX = json2.aX;
+      this.aY = json2.aY;
+      this.xRadius = json2.xRadius;
+      this.yRadius = json2.yRadius;
+      this.aStartAngle = json2.aStartAngle;
+      this.aEndAngle = json2.aEndAngle;
+      this.aClockwise = json2.aClockwise;
+      this.aRotation = json2.aRotation;
       return this;
     }
   };
@@ -18649,16 +18649,16 @@
       data.tension = this.tension;
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
+    fromJSON(json2) {
+      super.fromJSON(json2);
       this.points = [];
-      for (let i = 0, l = json.points.length; i < l; i++) {
-        const point = json.points[i];
+      for (let i = 0, l = json2.points.length; i < l; i++) {
+        const point = json2.points[i];
         this.points.push(new Vector3().fromArray(point));
       }
-      this.closed = json.closed;
-      this.curveType = json.curveType;
-      this.tension = json.tension;
+      this.closed = json2.closed;
+      this.curveType = json2.curveType;
+      this.tension = json2.tension;
       return this;
     }
   };
@@ -18734,12 +18734,12 @@
       data.v3 = this.v3.toArray();
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.v0.fromArray(json.v0);
-      this.v1.fromArray(json.v1);
-      this.v2.fromArray(json.v2);
-      this.v3.fromArray(json.v3);
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.v0.fromArray(json2.v0);
+      this.v1.fromArray(json2.v1);
+      this.v2.fromArray(json2.v2);
+      this.v3.fromArray(json2.v3);
       return this;
     }
   };
@@ -18779,12 +18779,12 @@
       data.v3 = this.v3.toArray();
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.v0.fromArray(json.v0);
-      this.v1.fromArray(json.v1);
-      this.v2.fromArray(json.v2);
-      this.v3.fromArray(json.v3);
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.v0.fromArray(json2.v0);
+      this.v1.fromArray(json2.v1);
+      this.v2.fromArray(json2.v2);
+      this.v3.fromArray(json2.v3);
       return this;
     }
   };
@@ -18827,10 +18827,10 @@
       data.v2 = this.v2.toArray();
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.v1.fromArray(json.v1);
-      this.v2.fromArray(json.v2);
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.v1.fromArray(json2.v1);
+      this.v2.fromArray(json2.v2);
       return this;
     }
   };
@@ -18869,10 +18869,10 @@
       data.v2 = this.v2.toArray();
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.v1.fromArray(json.v1);
-      this.v2.fromArray(json.v2);
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.v1.fromArray(json2.v1);
+      this.v2.fromArray(json2.v2);
       return this;
     }
   };
@@ -18907,11 +18907,11 @@
       data.v2 = this.v2.toArray();
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.v0.fromArray(json.v0);
-      this.v1.fromArray(json.v1);
-      this.v2.fromArray(json.v2);
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.v0.fromArray(json2.v0);
+      this.v1.fromArray(json2.v1);
+      this.v2.fromArray(json2.v2);
       return this;
     }
   };
@@ -18948,11 +18948,11 @@
       data.v2 = this.v2.toArray();
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.v0.fromArray(json.v0);
-      this.v1.fromArray(json.v1);
-      this.v2.fromArray(json.v2);
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.v0.fromArray(json2.v0);
+      this.v1.fromArray(json2.v1);
+      this.v2.fromArray(json2.v2);
       return this;
     }
   };
@@ -18997,11 +18997,11 @@
       }
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
+    fromJSON(json2) {
+      super.fromJSON(json2);
       this.points = [];
-      for (let i = 0, l = json.points.length; i < l; i++) {
-        const point = json.points[i];
+      for (let i = 0, l = json2.points.length; i < l; i++) {
+        const point = json2.points[i];
         this.points.push(new Vector2().fromArray(point));
       }
       return this;
@@ -19138,12 +19138,12 @@
       }
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.autoClose = json.autoClose;
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.autoClose = json2.autoClose;
       this.curves = [];
-      for (let i = 0, l = json.curves.length; i < l; i++) {
-        const curve = json.curves[i];
+      for (let i = 0, l = json2.curves.length; i < l; i++) {
+        const curve = json2.curves[i];
         this.curves.push(new Curves[curve.type]().fromJSON(curve));
       }
       return this;
@@ -19249,9 +19249,9 @@
       data.currentPoint = this.currentPoint.toArray();
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.currentPoint.fromArray(json.currentPoint);
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.currentPoint.fromArray(json2.currentPoint);
       return this;
     }
   };
@@ -19295,12 +19295,12 @@
       }
       return data;
     }
-    fromJSON(json) {
-      super.fromJSON(json);
-      this.uuid = json.uuid;
+    fromJSON(json2) {
+      super.fromJSON(json2);
+      this.uuid = json2.uuid;
       this.holes = [];
-      for (let i = 0, l = json.holes.length; i < l; i++) {
-        const hole = json.holes[i];
+      for (let i = 0, l = json2.holes.length; i < l; i++) {
+        const hole = json2.holes[i];
         this.holes.push(new Path().fromJSON(hole));
       }
       return this;
@@ -19872,9 +19872,9 @@
       this.sh.copy(source.sh);
       return this;
     }
-    fromJSON(json) {
-      this.intensity = json.intensity;
-      this.sh.fromArray(json.sh);
+    fromJSON(json2) {
+      this.intensity = json2.intensity;
+      this.sh.fromArray(json2.sh);
       return this;
     }
     toJSON(meta) {
@@ -21946,10 +21946,10 @@
       return ib;
     }
     toJSON(data) {
-      const json = super.toJSON(data);
-      json.isInstancedInterleavedBuffer = true;
-      json.meshPerAttribute = this.meshPerAttribute;
-      return json;
+      const json2 = super.toJSON(data);
+      json2.isInstancedInterleavedBuffer = true;
+      json2.meshPerAttribute = this.meshPerAttribute;
+      return json2;
     }
   };
   InstancedInterleavedBuffer.prototype.isInstancedInterleavedBuffer = true;
@@ -24067,24 +24067,50 @@
     }
   };
 
+  // src/metadata.ts
+  async function json(url, signal) {
+    const response = await fetch(url, { signal });
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    return response.json();
+  }
+
   // src/data/DataLoader.ts
+  var DATA_INDEX_URL = "https://arkres.blob.core.windows.net/terrain/index.json";
   var DataLoader = class {
-    constructor() {
+    constructor(indexUrl = DATA_INDEX_URL) {
+      this.indexUrl = indexUrl;
       this.indexData = null;
     }
     async loadIndex() {
-      const response = await fetch("./data/index.json");
+      const response = await fetch(this.indexUrl, { cache: "no-cache" });
       if (!response.ok) {
         throw new Error(`Failed to load index.json: ${response.status} ${response.statusText}`);
       }
-      this.indexData = await response.json();
-      if (!this.indexData) {
-        throw new Error("Index data is null or undefined");
+      const data = await response.json();
+      if (data.version !== 1 || !Array.isArray(data.maps) || !Array.isArray(data.resourceTypes) || data.maps.some((map) => !map.key || !map.name || !map.indexUrl)) {
+        throw new Error("Invalid site data index");
       }
+      this.indexData = data;
       return this.indexData;
     }
+    async loadMapVersion(mapKey, signal) {
+      if (!this.indexData) await this.loadIndex();
+      const info = this.getMaps().find((map) => map.key === mapKey);
+      if (!info) throw new Error(`Map ${mapKey} not found`);
+      const url = new URL(info.indexUrl, this.indexUrl);
+      const version = await json(url.href, signal);
+      if (version.version !== 1 || version.mapKey !== mapKey || typeof version.dataUrl !== "string" || !version.dataUrl || typeof version.imageUrl !== "string" || !version.imageUrl || version.terrainUrl !== null && (typeof version.terrainUrl !== "string" || !version.terrainUrl)) {
+        throw new Error(`Invalid map version for ${mapKey}`);
+      }
+      return {
+        ...version,
+        dataUrl: new URL(version.dataUrl, url).href,
+        imageUrl: new URL(version.imageUrl, url).href,
+        terrainUrl: version.terrainUrl === null ? null : new URL(version.terrainUrl, url).href
+      };
+    }
     async loadMapData(dataUrl) {
-      const normalizedUrl = dataUrl.startsWith("http") || dataUrl.startsWith("/") ? dataUrl : `./data/${dataUrl.replace(/^\.\//, "")}`;
+      const normalizedUrl = new URL(dataUrl, this.indexUrl).href;
       const response = await fetch(normalizedUrl);
       if (!response.ok) {
         throw new Error(
@@ -24120,7 +24146,8 @@
       if (!mapInfo) {
         throw new Error(`Map ${mapKey} not found`);
       }
-      return this.loadMapData(mapInfo.dataUrl);
+      const version = await this.loadMapVersion(mapKey);
+      return this.loadMapData(version.dataUrl);
     }
   };
 
@@ -24150,13 +24177,6 @@
       (link) => link !== void 0 && (link === null || typeof link.url !== "string" || !link.url.trim())
     ))
       throw new Error(`Invalid 3D map metadata for ${mapKey}.`);
-  }
-  function initialRepresentation(manifest, requested) {
-    if ((requested === "triangles" || requested === "progressive" || requested === "mesh") && manifest.progressiveModel)
-      return "triangles";
-    if (manifest.cubeModel) return "cubes";
-    if (manifest.progressiveModel) return "triangles";
-    throw new Error(`No 3D extraction published for ${manifest.mapKey}.`);
   }
 
   // src/flat-map.ts
@@ -24735,13 +24755,6 @@
       );
     });
     return positions;
-  }
-
-  // src/metadata.ts
-  async function freshJson(url, signal) {
-    const response = await fetch(url, { signal, cache: "no-store" });
-    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-    return response.json();
   }
 
   // src/camera-view.ts
@@ -25542,7 +25555,7 @@ varying vec3 worldColorPosition;`
       this.status({ text: "Loading continuous world-model metadata\u2026" });
       try {
         const bytes = await boundedResponse(
-          await this.request(context.url, { signal: controller.signal, cache: "no-store" }),
+          await this.request(context.url, { signal: controller.signal }),
           128 * 1024 * 1024,
           controller.signal,
           "World model"
@@ -26246,12 +26259,6 @@ varying vec3 worldColorPosition;`
           throw new Error("Unsupported camera projection.");
         this.setProjection(projection);
       });
-      el("world-representation").addEventListener("change", () => {
-        const url = new URL(location.href);
-        url.searchParams.set("world", el("world-representation").value);
-        history.replaceState(history.state, "", url);
-        this.updateWorldModel();
-      });
       el("camera-copy").addEventListener("click", () => {
         void (async () => {
           let captured = false;
@@ -26317,7 +26324,6 @@ varying vec3 worldColorPosition;`
         "resource-size",
         "resource-glow",
         "resource-through",
-        "size-attenuation",
         "terrain-opacity",
         "shading",
         "wireframe",
@@ -26477,8 +26483,6 @@ varying vec3 worldColorPosition;`
       this.selectedKey = key;
       this.worldModel.clear();
       this.blockModelUrl = void 0;
-      el("world-representation").value = "cubes";
-      el("world-representation-label").hidden = true;
       this.worldModelManifest = void 0;
       el("world-model-status").textContent = "World-model export not available (or map still loading).";
       el("world-model-status").setAttribute("data-debug", "");
@@ -26519,24 +26523,19 @@ varying vec3 worldColorPosition;`
         const info = maps.find((map2) => map2.key === key);
         if (!info) throw new Error(`Unknown map ${key}`);
         history.replaceState(history.state, "", mapUrl(new URL(location.href), key));
-        const dataUrl = info.dataUrl.startsWith("http") || info.dataUrl.startsWith("/") ? info.dataUrl : `./data/${info.dataUrl.replace(/^\.\//, "")}`;
-        const raw = await freshJson(
-          new URL(dataUrl, document.baseURI).href,
+        const version = await this.loader.loadMapVersion(key, signal);
+        const raw = await json(
+          version.dataUrl,
           signal
         );
         const map = new MapData(raw);
         if (map.mapKey !== key || !map.imageName)
           throw new Error("Map metadata/image is missing or mismatched.");
-        const indexUrl = new URL("./terrain/index.json", document.baseURI).href;
-        let manifestUrl = indexUrl;
+        const manifestUrl = version.terrainUrl;
         let manifest;
         try {
-          const index = await freshJson(indexUrl, signal);
-          if (index.version !== 1 || !Array.isArray(index.maps)) throw new Error("Invalid terrain index.");
-          const entry = index.maps.find((item) => item.mapKey === key);
-          if (!entry) throw new Error(`No terrain metadata published for ${info.name}.`);
-          manifestUrl = new URL(entry.url, indexUrl).href;
-          manifest = await freshJson(manifestUrl, signal);
+          if (!manifestUrl) throw new Error(`No terrain metadata published for ${info.name}.`);
+          manifest = await json(manifestUrl, signal);
           validateManifest(manifest, key);
         } catch (error) {
           signal.throwIfAborted();
@@ -26544,7 +26543,7 @@ varying vec3 worldColorPosition;`
           manifest.warnings.push(`Terrain metadata unavailable: ${error instanceof Error ? error.message : String(error)}. Showing a flat map.`);
         }
         const image = await fetchMapImage(
-          new URL(`./images/${map.imageName}`, document.baseURI),
+          new URL(version.imageUrl),
           signal
         );
         if (image.kind === "image") {
@@ -26564,7 +26563,7 @@ varying vec3 worldColorPosition;`
           this.texture = texture;
         } else {
           el("image-warning").hidden = false;
-          el("image-warning").textContent = `Map image unavailable (HTTP ${image.status}: ${map.imageName}). Showing untextured 3D geometry; recorded resource positions are unchanged.`;
+          el("image-warning").textContent = `Map image unavailable (HTTP ${image.status}: ${version.imageUrl}). Showing untextured 3D geometry; recorded resource positions are unchanged.`;
         }
         this.map = map;
         this.manifest = manifest;
@@ -26586,13 +26585,7 @@ varying vec3 worldColorPosition;`
         this.buildResources();
         this.home(true);
         el("loading").hidden = true;
-        this.blockModelUrl = manifest.cubeModel ? new URL(manifest.cubeModel.url, manifestUrl).href : void 0;
-        this.progressiveModelUrl = manifest.progressiveModel ? new URL(manifest.progressiveModel.url, manifestUrl).href : void 0;
-        const representation = el("world-representation");
-        representation.value = manifest.cubeModel || manifest.progressiveModel ? initialRepresentation(manifest, new URL(location.href).searchParams.get("world")) : "cubes";
-        el("world-representation-label").hidden = !this.blockModelUrl && !this.progressiveModelUrl;
-        for (const option of Array.from(representation.options))
-          option.disabled = option.value === "cubes" ? !this.blockModelUrl : !this.progressiveModelUrl;
+        this.blockModelUrl = manifest.cubeModel && manifestUrl ? new URL(manifest.cubeModel.url, manifestUrl).href : void 0;
         this.updateWorldModel();
       } catch (error) {
         if (generation !== this.generation) return;
@@ -26607,9 +26600,6 @@ varying vec3 worldColorPosition;`
         this.texture = void 0;
         this.error(error);
       }
-    }
-    get blockMode() {
-      return !!this.blockModelUrl && el("world-representation").value === "cubes";
     }
     clearFlatMap() {
       if (!this.flatMap) return;
@@ -26655,10 +26645,10 @@ varying vec3 worldColorPosition;`
     }
     updateWorldModel() {
       this.worldModelManifest = void 0;
-      el("cube-size-label").hidden = !this.blockMode;
+      el("cube-size-label").hidden = !this.blockModelUrl;
       this.updateCubeSizeControl();
       el("world-cutaway-label").hidden = true;
-      const modelUrl = el("world-representation").value === "triangles" ? this.progressiveModelUrl : this.blockModelUrl;
+      const modelUrl = this.blockModelUrl;
       if (!modelUrl || !this.manifest || !this.map) {
         this.worldModel.clear();
         el("world-model-status").textContent = "Terrain unavailable. Showing a flat map; recorded resource coordinates are unchanged.";
@@ -26868,6 +26858,7 @@ varying vec3 worldColorPosition;`
           new PointsMaterial({
             color: nodes[0].colorHex,
             map: this.marker,
+            sizeAttenuation: false,
             transparent: true,
             alphaTest: 0.2,
             clippingPlanes: [this.worldModel.clipPlane],
@@ -26879,6 +26870,7 @@ varying vec3 worldColorPosition;`
           new PointsMaterial({
             color: nodes[0].colorHex,
             map: this.glow,
+            sizeAttenuation: false,
             transparent: true,
             opacity: 0.5,
             blending: AdditiveBlending,
@@ -26961,7 +26953,6 @@ varying vec3 worldColorPosition;`
         layer.points.material.size = value("resource-size");
         layer.glow.material.size = value("resource-size") * 2.5;
         layer.points.material.depthTest = layer.glow.material.depthTest = !checked("resource-through");
-        layer.points.material.sizeAttenuation = layer.glow.material.sizeAttenuation = checked("size-attenuation");
       }
       this.updateVisibility(false);
     }

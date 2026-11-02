@@ -13,8 +13,14 @@ The former flat viewer and standalone Island demo have been removed.
 without a build step. `npm run typecheck`, `npm test`, and `npm run lint` provide
 validation.
 
-The viewer loads `data/index.json`, the selected resource map, its image, and
-`terrain/index.json`. Index URLs resolve relative to that index.
+The viewer revalidates `https://arkres.blob.core.windows.net/terrain/index.json`
+with `cache: no-cache`. This site catalog points to immutable per-map indexes at
+`maps/<key>/<sha256>.json`, which pin the resource JSON, image and terrain metadata.
+All map content is Blob-hosted; Pages deploys only renderer files. Versioned
+indexes, JSON, images and meshes use normal HTTP caching with one-year immutable
+headers. Shared content-addressed files are not duplicated between map versions.
+Data publication replaces the site catalog last and does not deploy Pages.
+Tests use deterministic fixtures rather than generated production files.
 The version-2 per-map metadata retains calibrated centimeter bounds
 (`originX`, `originY`, `maxX`, `maxY`, `minZ`, `maxZ`), a `mapKey`,
 warnings, and optional `worldModel`, `blockModel`, and `progressiveModel` links.
@@ -24,11 +30,16 @@ have been removed. Source collision heightfields still contribute triangles to
 offline 3D extraction; they are not the retired single-height display grid.
 Maps with no published 3D link report an explicit unavailable-extraction error.
 Recorded resource coordinates remain unchanged and are never surface-clamped.
+Resource markers and their glow keep a fixed screen size in both camera
+projections for readability; the Marker size slider controls their size.
+Far cube target, Terrain lighting, and Show mesh edges are visible only when
+Show debug is enabled.
+Clustering controls sit below the resource list and node-count summary.
 
 ### Optional continuous collision-world skin
 
 An optional terrain-manifest `worldModel: { "url": "world.json" }` enables the
-continuous model. It loads automatically, fetches metadata with `no-store`,
+continuous model internally. Immutable metadata uses normal HTTP caching,
 and streams geometry within the limits below. `src/world-model.ts` validates the
 version-1 `awm1` contract: centimeter XYZ vertices, outward Unreal winding,
 uint32 triangle indices and per-triangle topmost/source-walkable flag bits.
@@ -73,12 +84,13 @@ The map texture is shared, not disposed by world-layer cleanup.
 ### Progressive 3D refinement
 
 A manifest with `roots` and per-patch `children` uses the progressive path instead
-of independent XY tile LODs. The optional terrain `progressiveModel` link exposes
-**Triangles**. The selector offers only **Cubes** (default) and **Triangles**;
-both stream a complete coarse base before local detail. `world=triangles`
-selects triangles explicitly; old `world=progressive` and `world=mesh` links
-remain aliases. Independent legacy mesh/block datasets remain on disk but
-are not dropdown options. Triangle rendering is still experimental internally:
+of independent XY tile LODs. The public viewer is currently cube-only and loads
+the terrain `cubeModel` link. There is no World representation selector, and old
+`world=triangles`, `world=progressive`, and `world=mesh` parameters are ignored.
+Cube sizing, cutaway and other terrain controls remain available. Maps without
+cube terrain use the existing flat-map fallback rather than loading triangles.
+Offline triangle exports and internal progressive rendering remain available for
+future work but are not exposed by the viewer. Triangle rendering is experimental internally:
 the triangle budget still limits some close views and coarse clustering can
 look jagged.
 A complete coarse 3D base is loaded first. Nothing is rendered or pickable until

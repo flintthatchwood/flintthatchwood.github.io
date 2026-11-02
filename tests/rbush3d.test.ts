@@ -1,30 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { metalResource } from './fixtures/resources.js';
 import { RBush3D } from '../src/clustering/rbush3d.js';
 
-interface MapData {
-    mapKey: string;
-    coordinates: {
-        worldSize: number;
-        offsetX: number;
-        offsetY: number;
-        offsetZ: number;
-    };
-    resources: Array<{
-        resourceType: string;
-        points: number[][]; // Array of [x, y, z] arrays
-    }>;
-}
-
-test('RBush3D with Aberration metal resources', async (t) => {
-    // Load Aberration map data
-    const dataPath = 'root/data/game/Aberration_WP.json';
-    const mapData: MapData = JSON.parse(readFileSync(dataPath, 'utf-8'));
-
-    // Find metal resources
-    const metalResource = mapData.resources.find((r) => r.resourceType === 'Metal');
-    assert.ok(metalResource, 'Should have Metal resources');
+test('RBush3D with deterministic resource fixtures', async (t) => {
 
     // Each point is [x, y, z]
     const metalPoints = metalResource.points.map((coords, i) => ({
@@ -34,7 +13,7 @@ test('RBush3D with Aberration metal resources', async (t) => {
         index: i,
     }));
 
-    console.log(`Loaded ${metalPoints.length} metal points from Aberration`);
+    console.log(`Loaded ${metalPoints.length} fixture metal points`);
     console.log(`First 3 points:`, metalPoints.slice(0, 3));
     assert.ok(metalPoints.length > 0, 'Should have metal points');
 

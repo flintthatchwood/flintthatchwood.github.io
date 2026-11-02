@@ -371,7 +371,7 @@ test('world layer loads lazily, averages covered colors, and preserves shared te
     const request: typeof fetch = async (url, options) => {
         urls.push(String(url));
         if (String(url).endsWith('world.json')) {
-            assert.equal(options?.cache, 'no-store');
+            assert.equal(options?.cache, undefined);
             return Response.json(m);
         }
         return new Response(binary());
