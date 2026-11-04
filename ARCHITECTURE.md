@@ -48,8 +48,10 @@ and streams geometry within the limits below. `src/world-model.ts` validates the
 version-1 `awm1` contract: centimeter XYZ vertices, outward Unreal winding,
 uint32 triangle indices and per-triangle topmost/source-walkable flag bits.
 Header/count/length/reserved/flag/index/coordinate checks reject malformed data.
-LOD URLs are relative to the manifest; tile footprints must form a nonoverlapping
-nominal XY grid. Each binary is capped at 32 MiB and metadata at 128 MiB
+LOD URLs are relative to the manifest or content-addressed Azure Blob URLs.
+AWM payloads support both `.awm` and `.awm.gz`; HTTP `Content-Encoding: gzip`
+handles decompression before the bounded reader. Tile footprints must form a
+nonoverlapping nominal XY grid. Each decoded binary is capped at 32 MiB and metadata at 128 MiB
 (the progressive hierarchy includes substantially more node descriptors).
 
 The renderer preserves whole tiles and every floor within each resident tile.
@@ -278,9 +280,9 @@ Resources use the existing `World` clustering in original centimeter XYZ,
 including per-type counts, cluster centroids, filters, and member indices.
 Marker picking, glow, cave visibility, opacity, lighting, debug
 coordinates, and oblique/north-up navigation are part of the production UI.
-The camera defaults to north-up Orthographic, fitted to the full window with a
+The camera defaults to north-up Perspective, fitted to the full window with a
 small margin and no aspect-ratio cropping. A projection selector switches to
-Perspective or back while preserving direction and apparent scale at the focus.
+Orthographic or back while preserving direction and apparent scale at the focus.
 The controls panel has an always-accessible collapse/expand arrow. Numeric
 coordinate and measurement displays use two decimal places.
 Vertical exaggeration is fixed at 1 for both terrain and recorded resource XYZ.

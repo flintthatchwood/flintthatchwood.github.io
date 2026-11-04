@@ -25433,7 +25433,7 @@ vec3 worldMorphPosition() {
           throw new Error("Progressive patches require collapse correspondence.");
         if (cubes && (l.morph === true || ![100, 200, 400, 800, 1600, 3200, 6400].includes(lod.cubeSizeCm)))
           throw new Error("Cube patches require aligned non-morphing cube sizes.");
-        if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) && !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm|awp)$/.test(lod.url) || /[\s\\]/.test(lod.url) || lod.url.split("/").includes("..") || worldBinaryBytes(lod) > WORLD_TILE_BYTES || lod.maxErrorCm < previousError)
+        if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) && !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp)$/.test(lod.url) || /[\s\\]/.test(lod.url) || lod.url.split("/").includes("..") || worldBinaryBytes(lod) > WORLD_TILE_BYTES || lod.maxErrorCm < previousError)
           throw new Error("Invalid world-model LOD, mesh URL or 32 MiB tile budget.");
         previousError = lod.maxErrorCm;
         return lod;
@@ -26244,7 +26244,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.world = new World();
       this.scene = new Scene();
       this.renderer = new WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-      this.camera = new OrthographicCamera(-1, 1, 1, -1, 1, 1e6);
+      this.camera = new PerspectiveCamera(42, 1, 1, 1e6);
       this.controls = new OrbitControls(this.camera, this.renderer.domElement);
       this.movementMode = "world";
       this.lastCameraPosition = new Vector3();

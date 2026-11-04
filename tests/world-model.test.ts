@@ -128,6 +128,52 @@ test('world manifests require exact identity, bounded LODs and nominal nonoverla
     }
 });
 
+test('published AWM URLs accept gzip without relaxing trusted origins or decoded tile budgets', () => {
+    const url = `https://arkres.blob.core.windows.net/terrain/managed/v1/${'a'.repeat(64)}.awm`;
+    for (const representation of ['world-boundaries', 'blocks']) {
+        const manifest = fixture();
+        manifest.statistics.representation = representation;
+        if (representation === 'blocks') {
+            manifest.statistics.hierarchyVersion = 3;
+            manifest.statistics.seamPolicy = 'closed-voxel-partitions-v1';
+            manifest.statistics.complete = true;
+            manifest.roots = manifest.tiles.map(tile => tile.id);
+            manifest.tiles.forEach(tile => {
+                tile.children = [];
+                tile.lods[0].cubeSizeCm = 100;
+            });
+        }
+        for (const suffix of ['', '.gz']) {
+            manifest.tiles.forEach(tile => { tile.lods[0].url = url + suffix; });
+            assert.equal(validateWorldModel(manifest, 'Island').tiles.length, 2);
+        }
+        for (const invalid of [
+            url.replace('https:', 'http:') + '.gz',
+            url.replace('arkres.blob.core.windows.net', 'example.test') + '.gz',
+            url.replace('/managed/v1/', '/other/') + '.gz',
+            url.replace('a'.repeat(64), 'not-a-hash') + '.gz',
+            url + '.gz?other=1',
+            url + '.gzip',
+            url + '.gz/extra',
+        ]) {
+            manifest.tiles[0].lods[0].url = invalid;
+            assert.throws(() => validateWorldModel(manifest, 'Island'), /mesh URL/);
+        }
+        manifest.tiles[0].lods[0].url = url + '.gz';
+        manifest.tiles[0].lods[0].vertices = 10_000_000;
+        assert.throws(() => validateWorldModel(manifest, 'Island'), /32 MiB tile budget/);
+    }
+    const manifest = fixture();
+    Object.assign(manifest.tiles[0].lods[0], {
+        url: url + '.gz',
+        vertices: 2_796_197,
+        triangles: 4,
+    });
+    assert.doesNotThrow(() => validateWorldModel(manifest, 'Island'));
+    manifest.tiles[0].lods[0].vertices++;
+    assert.throws(() => validateWorldModel(manifest, 'Island'), /32 MiB tile budget/);
+});
+
 test('authored world curtains use animated translucent materials without map-image clipping or terrain lighting', async () => {
     const manifest = fixture();
     manifest.statistics = { representation: 'world-boundaries', complete: true };

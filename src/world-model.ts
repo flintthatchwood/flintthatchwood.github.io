@@ -172,7 +172,7 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
                 throw new Error('Cube patches require aligned non-morphing cube sizes.');
             if (
                 (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) &&
-                    !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm|awp)$/.test(lod.url)) ||
+                    !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp)$/.test(lod.url)) ||
                 /[\s\\]/.test(lod.url) ||
                 lod.url.split('/').includes('..') ||
                 worldBinaryBytes(lod) > WORLD_TILE_BYTES ||

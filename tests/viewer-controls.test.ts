@@ -49,11 +49,11 @@ test('Space and C share continuous movement, input guards and key-release handli
     assert.match(html, /Space: up · C: down/);
 });
 
-test('orthographic north-up defaults, projection selector and accessible panel toggle are wired', () => {
-    assert.match(html, /value="orthographic" selected>Orthographic/);
-    assert.match(html, /value="perspective">Perspective/);
+test('perspective north-up defaults, projection selector and accessible panel toggle are wired', () => {
+    assert.match(html, /value="orthographic">Orthographic/);
+    assert.match(html, /value="perspective" selected>Perspective/);
     assert.match(html, /id="panel-toggle"[^>]+aria-controls="control-panel"[^>]+aria-expanded="true"/);
-    assert.match(viewer, /private camera: MapCamera = new THREE.OrthographicCamera/);
+    assert.match(viewer, /private camera: MapCamera = new THREE.PerspectiveCamera/);
     assert.match(viewer, /this.home\(true\);/);
     assert.match(viewer, /this.controls.object = this.camera/);
     assert.match(viewer, /fitMapCamera\(this.camera/);

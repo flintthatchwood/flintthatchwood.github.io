@@ -92,7 +92,7 @@ export class Viewer {
     private world = new World();
     private scene = new THREE.Scene();
     private renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-    private camera: MapCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1000000);
+    private camera: MapCamera = new THREE.PerspectiveCamera(42, 1, 1, 1000000);
     private controls = new OrbitControls(this.camera, this.renderer.domElement);
     private homeView?: boolean;
     private movementMode: 'world' | 'camera' = 'world';
