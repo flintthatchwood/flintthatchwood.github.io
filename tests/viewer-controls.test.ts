@@ -61,6 +61,24 @@ test('perspective north-up defaults, projection selector and accessible panel to
     assert.ok(!viewer.includes('World XYZ (cm): ${point.x},'));
 });
 
+test('terrain context menu snapshots the clicked surface CCC and preserves right-drag panning', () => {
+    assert.match(html, /id="terrain-context-menu" popover="auto" role="menu"/);
+    assert.match(html, /id="terrain-point-copy"[^>]+role="menuitem"[^>]+disabled>Copy CCC/);
+    assert.match(viewer, /canvas.addEventListener\('contextmenu'/);
+    assert.match(viewer, /if \(event.button === 2 && contextPress\?\.dragged\) return/);
+    assert.match(viewer, /this.surfaceAt\(event.clientX, event.clientY\)/);
+    assert.match(viewer, /\[world.x, world.y, world.z\]/);
+    assert.match(viewer, /copyPoint.disabled = code === undefined/);
+    assert.match(viewer, /void this.copyCoordinates\(code\)/);
+    assert.match(viewer, /const code = pointCode \?\? this.ccc\(\)/);
+    assert.match(viewer, /contextPress.dragged = true/);
+    assert.match(viewer, /\(event.buttons & 2\) !== 0/);
+    assert.match(viewer, /innerWidth - rect.width - 8/);
+    assert.match(viewer, /innerHeight - rect.height - 8/);
+    assert.match(viewer, /menu.showPopover\(\)/);
+    assert.match(viewer, /hidePopover\(\)/);
+});
+
 test('retired terrain controls have no markup or viewer wiring', () => {
     for (const id of [
         'terrain-style',

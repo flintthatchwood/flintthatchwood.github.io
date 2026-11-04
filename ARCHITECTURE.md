@@ -285,6 +285,12 @@ small margin and no aspect-ratio cropping. A projection selector switches to
 Orthographic or back while preserving direction and apparent scale at the focus.
 The controls panel has an always-accessible collapse/expand arrow. Numeric
 coordinate and measurement displays use two decimal places.
+Right-clicking visible terrain opens a Copy CCC menu for that exact surface
+point, retaining the current camera yaw/pitch. Coordinates are captured when the
+menu opens, not from the camera or a later cursor position. Unloaded/empty areas
+disable copying; right-drag still pans. Clicking outside dismisses the
+menu, which stays inside the viewport. Copy errors offer the existing selected
+Camera / ccc field for manual copying.
 Vertical exaggeration is fixed at 1 for both terrain and recorded resource XYZ.
 The panel hides explanatory implementation text, coverage, world generation
 details and render counts behind Show debug. Actionable image/load errors and

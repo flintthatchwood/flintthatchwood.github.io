@@ -26503,29 +26503,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         this.setProjection(projection);
       });
       el("camera-copy").addEventListener("click", () => {
-        void (async () => {
-          let captured = false;
-          try {
-            const code = this.ccc();
-            const field = el("camera-code");
-            field.value = code;
-            captured = true;
-            if (!navigator.clipboard) throw new Error("Clipboard unavailable.");
-            await navigator.clipboard.writeText(code);
-            el("camera-status").textContent = "Coordinates copied.";
-          } catch (error) {
-            if (captured) {
-              this.setPanelExpanded(true);
-              const field = el("camera-code");
-              field.closest("details").open = true;
-              document.body.classList.add("show-debug");
-              input("debug-toggle").checked = true;
-              field.focus();
-              field.select();
-            }
-            el("camera-status").textContent = `Copy failed: ${error instanceof Error ? error.message : String(error)}${captured ? " Copy the selected coordinates manually." : ""}`;
-          }
-        })();
+        void this.copyCoordinates();
       });
       el("camera-paste").addEventListener("click", () => {
         void (async () => {
@@ -26592,11 +26570,49 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         });
       }
       const canvas = this.renderer.domElement;
+      const menu = el("terrain-context-menu");
+      const copyPoint = el("terrain-point-copy");
+      let contextPress;
+      canvas.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        if (event.button === 2 && contextPress?.dragged) return;
+        this.stopFlight();
+        const point = this.map && this.manifest && el("loading").hidden ? this.surfaceAt(event.clientX, event.clientY) : void 0;
+        const world = point ? this.toWorld(point) : void 0;
+        const code = world ? encodeCameraCode(
+          [world.x, world.y, world.z],
+          this.camera.getWorldDirection(new Vector3())
+        ) : void 0;
+        el("terrain-point-coordinates").textContent = world ? `XYZ (cm): ${displayNumber(world.x)}, ${displayNumber(world.y)}, ${displayNumber(world.z)}` : "No terrain at this point. Wait for visible terrain to load.";
+        copyPoint.disabled = code === void 0;
+        copyPoint.onclick = code === void 0 ? null : () => {
+          this.closeContextMenu();
+          void this.copyCoordinates(code);
+        };
+        menu.style.left = "8px";
+        menu.style.top = "8px";
+        menu.showPopover();
+        const rect = menu.getBoundingClientRect();
+        menu.style.left = `${Math.max(8, Math.min(event.clientX, innerWidth - rect.width - 8))}px`;
+        menu.style.top = `${Math.max(8, Math.min(event.clientY, innerHeight - rect.height - 8))}px`;
+        if (!copyPoint.disabled) copyPoint.focus({ preventScroll: true });
+      });
+      menu.addEventListener("keydown", (event) => {
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          copyPoint.focus({ preventScroll: true });
+        }
+      });
+      this.controls.addEventListener("change", () => this.closeContextMenu());
+      window.addEventListener("resize", () => this.closeContextMenu());
+      window.addEventListener("blur", () => this.closeContextMenu());
       canvas.tabIndex = 0;
       canvas.setAttribute("aria-label", "Map camera: WASD movement, Space up, C down, Shift for faster movement");
       canvas.addEventListener(
         "pointerdown",
         (event) => {
+          this.closeContextMenu();
+          contextPress = event.button === 2 ? { id: event.pointerId, x: event.clientX, y: event.clientY, dragged: false } : void 0;
           canvas.focus({ preventScroll: true });
           if (event.button === 1) event.preventDefault();
           this.homeView = void 0;
@@ -26638,6 +26654,10 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       canvas.addEventListener(
         "pointermove",
         (event) => {
+          if ((event.buttons & 2) !== 0 && contextPress?.id === event.pointerId && Math.hypot(event.clientX - contextPress.x, event.clientY - contextPress.y) >= 4) {
+            contextPress.dragged = true;
+            this.closeContextMenu();
+          }
           if (this.down && Math.hypot(event.clientX - this.down.x, event.clientY - this.down.y) >= 4)
             this.down = void 0;
           if (this.touchPointers.has(event.pointerId)) {
@@ -26689,6 +26709,8 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       });
       canvas.addEventListener("pointercancel", () => {
         this.down = void 0;
+        contextPress = void 0;
+        this.closeContextMenu();
       });
       canvas.addEventListener("pointercancel", release);
       canvas.addEventListener("lostpointercapture", (event) => {
@@ -26708,6 +26730,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         "wheel",
         (event) => {
           event.preventDefault();
+          this.closeContextMenu();
           this.homeView = void 0;
           if (event.deltaY)
             this.dolly(wheelPixels(event.deltaY, event.deltaMode, canvas.clientHeight));
@@ -26724,6 +26747,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       });
     }
     async load(key) {
+      this.closeContextMenu();
       this.stopFlight();
       this.surfaceDrag = void 0;
       this.touchPointers.clear();
@@ -27282,6 +27306,32 @@ Height ${displayNumber(point.z / 100)} m`;
         else el("cursor-details").textContent += `
 ${text2}`;
       } else if (select) el("resource-details").textContent = "No resource selected.";
+    }
+    closeContextMenu() {
+      el("terrain-context-menu").hidePopover();
+    }
+    async copyCoordinates(pointCode) {
+      let captured = false;
+      try {
+        const code = pointCode ?? this.ccc();
+        const field = el("camera-code");
+        field.value = code;
+        captured = true;
+        if (!navigator.clipboard) throw new Error("Clipboard unavailable.");
+        await navigator.clipboard.writeText(code);
+        el("camera-status").textContent = "Coordinates copied.";
+      } catch (error) {
+        if (captured) {
+          this.setPanelExpanded(true);
+          const field = el("camera-code");
+          field.closest("details").open = true;
+          document.body.classList.add("show-debug");
+          input("debug-toggle").checked = true;
+          field.focus();
+          field.select();
+        }
+        el("camera-status").textContent = `Copy failed: ${error instanceof Error ? error.message : String(error)}${captured ? " Copy the selected coordinates manually." : ""}`;
+      }
     }
     toWorld(point) {
       const m = this.manifest;

@@ -98,6 +98,40 @@
                 resize: vertical;
                 font: 11px ui-monospace, monospace;
             }
+            #terrain-context-menu {
+                position: fixed;
+                inset: auto;
+                margin: 0;
+                max-width: calc(100vw - 16px);
+                padding: 6px;
+                background: #13212d;
+                color: #e8eef2;
+                border: 1px solid #456875;
+                border-radius: 6px;
+                box-shadow: 0 6px 20px #0006;
+            }
+            #terrain-point-copy {
+                display: block;
+                width: 100%;
+                text-align: left;
+            }
+            #terrain-point-copy:hover:not(:disabled),
+            #terrain-point-copy:focus-visible {
+                background: #365762;
+                outline: 2px solid #8acdb5;
+                outline-offset: -2px;
+            }
+            #terrain-point-copy:disabled {
+                cursor: default;
+                color: #b0c5cf;
+            }
+            #terrain-point-coordinates {
+                max-width: 380px;
+                padding: 6px 2px 0;
+                font-size: 12px;
+                line-height: 1.5;
+                overflow-wrap: anywhere;
+            }
             .resource-option {
                 display: flex;
                 gap: 6px;
@@ -351,6 +385,10 @@
             <div id="camera-collision-status" role="status"></div>
         </div>
         <div id="debug-panel" hidden></div>
+        <div id="terrain-context-menu" popover="auto" role="menu" aria-label="Terrain point" aria-describedby="terrain-point-coordinates">
+            <button id="terrain-point-copy" type="button" role="menuitem" disabled>Copy CCC</button>
+            <div id="terrain-point-coordinates"></div>
+        </div>
         <div id="loading" role="status">Loading map list…</div>
         <div id="error" role="alert" hidden>
             <div id="error-message"></div>
