@@ -28,29 +28,25 @@ function close(actual: number, expected: number, tolerance = 1e-8) {
 }
 
 test('camera mouse look rotates in place; dragging left looks left and dragging up looks up', () => {
-    for (const orthographic of [false, true]) {
-        const camera = orthographic
-            ? new THREE.OrthographicCamera(-100, 100, 100, -100, 0.1, 100000)
-            : new THREE.PerspectiveCamera(42, 1, 0.1, 100000);
-        camera.position.set(10, 20, 30);
-        const target = camera.position.clone().addScaledVector(
-            cameraCodeDirection({ position: [0, 0, 0], pitch: 0, yaw: 45 }), 100,
-        );
-        camera.lookAt(target);
-        const position = camera.position.clone();
-        lookCamera(camera, target, -20, -20, 800, false);
-        const code = decodeCameraCode(encodeCameraCode([0, 0, 0], camera.getWorldDirection(new THREE.Vector3())));
-        assert.ok(code.yaw < 45 && code.pitch > 0);
-        assert.deepEqual(camera.position, position);
-        close(camera.position.distanceTo(target), 100);
-        lookCamera(camera, target, 0, 20, 800, true);
-        const inverted = decodeCameraCode(encodeCameraCode([0, 0, 0], camera.getWorldDirection(new THREE.Vector3())));
-        assert.ok(inverted.pitch > code.pitch);
-        assert.deepEqual(camera.position, position);
-        lookCamera(camera, target, 0, 1e6, 800, true);
-        assert.ok(camera.getWorldDirection(new THREE.Vector3()).y < 1);
-        assert.deepEqual(camera.position, position);
-    }
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100000);
+    camera.position.set(10, 20, 30);
+    const target = camera.position.clone().addScaledVector(
+        cameraCodeDirection({ position: [0, 0, 0], pitch: 0, yaw: 45 }), 100,
+    );
+    camera.lookAt(target);
+    const position = camera.position.clone();
+    lookCamera(camera, target, -20, -20, 800, false);
+    const code = decodeCameraCode(encodeCameraCode([0, 0, 0], camera.getWorldDirection(new THREE.Vector3())));
+    assert.ok(code.yaw < 45 && code.pitch > 0);
+    assert.deepEqual(camera.position, position);
+    close(camera.position.distanceTo(target), 100);
+    lookCamera(camera, target, 0, 20, 800, true);
+    const inverted = decodeCameraCode(encodeCameraCode([0, 0, 0], camera.getWorldDirection(new THREE.Vector3())));
+    assert.ok(inverted.pitch > code.pitch);
+    assert.deepEqual(camera.position, position);
+    lookCamera(camera, target, 0, 1e6, 800, true);
+    assert.ok(camera.getWorldDirection(new THREE.Vector3()).y < 1);
+    assert.deepEqual(camera.position, position);
 });
 
 test('swept camera travel blocks thin floors and ceilings from both sides without tunnelling', () => {
@@ -90,63 +86,55 @@ test('camera collision blocks walls and permits retreat without changing orienta
     material.dispose();
 });
 
-test('WASD flight uses view-forward and camera-right in both projections without changing heading', () => {
-    for (const orthographic of [false, true])
-        for (const [forward, strafe] of [[1, 0], [-1, 0], [0, -1], [0, 1], [1, 1]]) {
-            const view = fixture(100);
-            const camera = orthographic
-                ? new THREE.OrthographicCamera(-100, 100, 100, -100, 1, 1000000)
-                : view.camera;
-            camera.position.copy(view.camera.position);
-            camera.quaternion.copy(view.camera.quaternion);
-            const position = camera.position.clone(), target = view.target.clone();
-            const quaternion = camera.quaternion.clone(), zoom = camera.zoom;
-            const facing = camera.getWorldDirection(new THREE.Vector3());
-            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
-            const expected = facing.multiplyScalar(forward).addScaledVector(right, strafe).normalize().multiplyScalar(2);
-            const movement = moveCamera(camera, view.target, forward, strafe, 0.05, 100);
-            assert.ok(movement.distanceTo(expected) < 1e-8);
-            assert.ok(camera.position.clone().sub(position).distanceTo(movement) < 1e-8);
-            assert.ok(view.target.clone().sub(target).distanceTo(movement) < 1e-8);
-            close(Math.abs(camera.quaternion.dot(quaternion)), 1);
-            close(camera.position.distanceTo(view.target), 100);
-            close(camera.zoom, zoom);
-        }
+test('WASD flight uses view-forward and camera-right without changing heading', () => {
+    for (const [forward, strafe] of [[1, 0], [-1, 0], [0, -1], [0, 1], [1, 1]]) {
+        const view = fixture(100);
+        const camera = view.camera;
+        const position = camera.position.clone(), target = view.target.clone();
+        const quaternion = camera.quaternion.clone(), zoom = camera.zoom;
+        const facing = camera.getWorldDirection(new THREE.Vector3());
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(quaternion);
+        const expected = facing.multiplyScalar(forward).addScaledVector(right, strafe).normalize().multiplyScalar(2);
+        const movement = moveCamera(camera, view.target, forward, strafe, 0.05, 100);
+        assert.ok(movement.distanceTo(expected) < 1e-8);
+        assert.ok(camera.position.clone().sub(position).distanceTo(movement) < 1e-8);
+        assert.ok(view.target.clone().sub(target).distanceTo(movement) < 1e-8);
+        close(Math.abs(camera.quaternion.dot(quaternion)), 1);
+        close(camera.position.distanceTo(view.target), 100);
+        close(camera.zoom, zoom);
+    }
 });
 
 test('World WASD pans by yaw only, including exact vertical views, without changing altitude or projection', () => {
-    for (const orthographic of [false, true])
-        for (const yaw of [-179, -90, 0, 54.83, 90, 125.53, 179])
-            for (const pitch of [-90, -75, 0, 45, 90])
-                for (const [forward, strafe] of [[1, 0], [-1, 0], [0, 1], [1, 1]]) {
-                    const camera = orthographic
-                        ? new THREE.OrthographicCamera(-100, 100, 100, -100, 0.37, 100000)
-                        : new THREE.PerspectiveCamera(42, 1, 0.37, 100000);
-                    camera.position.set(100, 200, 300);
-                    camera.zoom = 2.5;
-                    const direction = cameraCodeDirection({ position: [0, 0, 0], yaw, pitch: 0 });
-                    camera.lookAt(camera.position.clone().add(direction));
-                    camera.rotateX(THREE.MathUtils.degToRad(pitch));
-                    const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 100);
-                    camera.updateProjectionMatrix();
-                    const position = camera.position.clone(), originalTarget = target.clone();
-                    const quaternion = camera.quaternion.clone(), projection = camera.projectionMatrix.clone();
-                    const radians = THREE.MathUtils.degToRad(yaw);
-                    const expected = new THREE.Vector3(
-                        Math.cos(radians) * forward - Math.sin(radians) * strafe,
-                        0,
-                        Math.sin(radians) * forward + Math.cos(radians) * strafe,
-                    ).normalize().multiplyScalar(2);
-                    const movement = moveCamera(camera, target, forward, strafe, 0.05, 100, false, 'world');
-                    assert.ok(movement.distanceTo(expected) < 1e-8, `${yaw}, ${pitch}`);
-                    assert.equal(camera.position.y, position.y);
-                    assert.equal(target.y, originalTarget.y);
-                    assert.ok(target.clone().sub(originalTarget).distanceTo(movement) < 1e-8);
-                    assert.ok(camera.quaternion.equals(quaternion));
-                    assert.ok(camera.projectionMatrix.equals(projection));
-                    assert.equal(camera.zoom, 2.5);
-                    assert.equal(camera.near, 0.37);
-                }
+    for (const yaw of [-179, -90, 0, 54.83, 90, 125.53, 179])
+        for (const pitch of [-90, -75, 0, 45, 90])
+            for (const [forward, strafe] of [[1, 0], [-1, 0], [0, 1], [1, 1]]) {
+                const camera = new THREE.PerspectiveCamera(42, 1, 0.37, 100000);
+                camera.position.set(100, 200, 300);
+                camera.zoom = 2.5;
+                const direction = cameraCodeDirection({ position: [0, 0, 0], yaw, pitch: 0 });
+                camera.lookAt(camera.position.clone().add(direction));
+                camera.rotateX(THREE.MathUtils.degToRad(pitch));
+                const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 100);
+                camera.updateProjectionMatrix();
+                const position = camera.position.clone(), originalTarget = target.clone();
+                const quaternion = camera.quaternion.clone(), projection = camera.projectionMatrix.clone();
+                const radians = THREE.MathUtils.degToRad(yaw);
+                const expected = new THREE.Vector3(
+                    Math.cos(radians) * forward - Math.sin(radians) * strafe,
+                    0,
+                    Math.sin(radians) * forward + Math.cos(radians) * strafe,
+                ).normalize().multiplyScalar(2);
+                const movement = moveCamera(camera, target, forward, strafe, 0.05, 100, false, 'world');
+                assert.ok(movement.distanceTo(expected) < 1e-8, `${yaw}, ${pitch}`);
+                assert.equal(camera.position.y, position.y);
+                assert.equal(target.y, originalTarget.y);
+                assert.ok(target.clone().sub(originalTarget).distanceTo(movement) < 1e-8);
+                assert.ok(camera.quaternion.equals(quaternion));
+                assert.ok(camera.projectionMatrix.equals(projection));
+                assert.equal(camera.zoom, 2.5);
+                assert.equal(camera.near, 0.37);
+            }
 });
 
 test('keyboard flight is frame-rate independent, normalized diagonally and four times faster with Shift', () => {
@@ -162,27 +150,24 @@ test('keyboard flight is frame-rate independent, normalized diagonally and four 
     }
 });
 
-test('vertical movement follows world height in either mode and projection regardless of camera pitch', () => {
+test('vertical movement follows world height in either mode regardless of camera pitch', () => {
     for (const mode of ['world', 'camera'] as const)
-        for (const orthographic of [false, true])
-            for (const pitch of [-Math.PI / 2, 0, Math.PI / 2])
-                for (const vertical of [-1, 1]) {
-                    const camera = orthographic
-                        ? new THREE.OrthographicCamera(-100, 100, 100, -100, 1, 1000000)
-                        : new THREE.PerspectiveCamera(42, 1, 1, 1000000);
-                    camera.position.set(100, 200, 300);
-                    camera.rotation.set(pitch, 0.4, 0);
-                    const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 100);
-                    const position = camera.position.clone(), originalTarget = target.clone();
-                    const rotation = camera.quaternion.clone(), zoom = camera.zoom;
-                    const movement = moveCamera(camera, target, 0, 0, 0.05, 100, false, mode, vertical);
-                    close(movement.distanceTo(new THREE.Vector3(0, 2 * vertical, 0)), 0);
-                    assert.ok(camera.position.distanceTo(position.add(movement)) < 1e-8);
-                    assert.ok(target.distanceTo(originalTarget.add(movement)) < 1e-8);
-                    close(Math.abs(camera.quaternion.dot(rotation)), 1);
-                    close(camera.position.distanceTo(target), 100);
-                    close(camera.zoom, zoom);
-                }
+        for (const pitch of [-Math.PI / 2, 0, Math.PI / 2])
+            for (const vertical of [-1, 1]) {
+                const camera = new THREE.PerspectiveCamera(42, 1, 1, 1000000);
+                camera.position.set(100, 200, 300);
+                camera.rotation.set(pitch, 0.4, 0);
+                const target = camera.position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 100);
+                const position = camera.position.clone(), originalTarget = target.clone();
+                const rotation = camera.quaternion.clone(), zoom = camera.zoom;
+                const movement = moveCamera(camera, target, 0, 0, 0.05, 100, false, mode, vertical);
+                close(movement.distanceTo(new THREE.Vector3(0, 2 * vertical, 0)), 0);
+                assert.ok(camera.position.distanceTo(position.add(movement)) < 1e-8);
+                assert.ok(target.distanceTo(originalTarget.add(movement)) < 1e-8);
+                close(Math.abs(camera.quaternion.dot(rotation)), 1);
+                close(camera.position.distanceTo(target), 100);
+                close(camera.zoom, zoom);
+            }
 });
 
 test('vertical diagonals share the speed limit and Shift multiplier; invalid vertical input is rejected', () => {

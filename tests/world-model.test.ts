@@ -14,6 +14,13 @@ import {
 } from '../src/world-model.js';
 
 const mapBounds = { minX: 0, minY: 0, maxX: 200, maxY: 100 };
+test('ignored partition masks require explicit spatial cube decoding', () => {
+    const tile = fixture().tiles[0], lod = { ...tile.lods[0], cubeSizeCm: 100 };
+    assert.throws(() => worldGeometry(binary(0, 8), lod, tile.bounds, 0, 0, mapBounds, true), /flags/);
+    const geometry = worldGeometry(binary(0, 8), lod, tile.bounds, 0, 0, mapBounds, true, true);
+    assert.deepEqual(geometry.groups, [{ start: 0, count: 3, materialIndex: 5 }]);
+    geometry.dispose();
+});
 function fixture(): WorldModelManifest {
     return {
         version: 1,
@@ -208,6 +215,32 @@ test('authored world curtains use animated translucent materials without map-ima
     assert.equal(material.transparent, true);
     assert.equal(material.depthWrite, false);
     assert.ok(!states.at(-1)?.retry);
+    layer.clear();
+});
+
+test('authored terrain beyond the minimap stays visible without stretching image calibration', async () => {
+    const manifest = fixture();
+    const layer = new WorldModelLayer(() => {}, async url =>
+        String(url).endsWith('.json')
+            ? Response.json(manifest)
+            : new Response(binary(String(url).includes('1.awm') ? 1 : 0)));
+    await layer.enable({
+        url: 'https://example.test/world.json', mapKey: 'Island',
+        centerX: 0, centerY: 0, mapBounds: { minX: 0, minY: 0, maxX: 100, maxY: 50 },
+    });
+    layer.update(view(), new THREE.Vector3(1, 1, .5), 800);
+    await until(() => layer.meshes.length === 2);
+    for (const mesh of layer.meshes) {
+        assert.ok(Array.isArray(mesh.material));
+        const material = mesh.material[0] as THREE.MeshBasicMaterial;
+        const planes = material.clippingPlanes!.slice(1);
+        assert.equal(planes.length, 4);
+        assert.ok(planes.every(plane => plane.distanceToPoint(new THREE.Vector3(2, 1, 1)) >= 0));
+    }
+    const uv = layer.meshes.find(mesh =>
+        mesh.geometry.getAttribute('position').getX(0) === 1)!.geometry.getAttribute('uv');
+    assert.equal(uv.getX(1), 2);
+    assert.equal(uv.getY(2), -1);
     layer.clear();
 });
 

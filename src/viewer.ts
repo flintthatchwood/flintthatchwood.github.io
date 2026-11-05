@@ -10,8 +10,9 @@ import { resourcePositions } from './resource-positions.js';
 import { json } from './metadata.js';
 import { WorldModelLayer, type WorldModelManifest } from './world-model.js';
 import { cubeSizeFactors } from './progressive-world.js';
+import { voxelAt, type VoxelSelection } from './voxel-inspection.js';
 import { cameraCodeDirection, decodeCameraCode, encodeCameraCode } from './camera-code.js';
-import { changeProjection, fitMapCamera, resizeMapCamera, worldUnitsPerPixel, type MapCamera, type Projection } from './camera-view.js';
+import { fitMapCamera, resizeMapCamera, worldUnitsPerPixel, type MapCamera } from './camera-view.js';
 import { displayNumber as number } from './display-number.js';
 import {
     dollySurface,
@@ -39,6 +40,12 @@ interface MarkerLayer {
     points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
     glow: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
     nodes: WorldPoint[];
+}
+
+interface TerrainInspection {
+    ark: string;
+    details: string;
+    voxel?: VoxelSelection;
 }
 
 function dispose(group: THREE.Group): void {
@@ -125,6 +132,9 @@ export class Viewer {
     private touchPointers = new Map<number, { x: number; y: number }>();
     private pinchDistance?: number;
     private lastHover = 0;
+    private pinnedDebug?: TerrainInspection;
+    private hoverDebug?: TerrainInspection;
+    private voxelOutline?: THREE.LineSegments<THREE.EdgesGeometry, THREE.LineBasicMaterial>;
     private blockModelUrl?: string;
     private boundaryModelUrl?: string;
     private worldBoundaryManifest?: WorldModelManifest;
@@ -309,6 +319,17 @@ export class Viewer {
                 this.worldBoundaries.update(this.camera, this.controls.target, this.renderer.domElement.clientHeight);
             }
             this.renderer.render(this.scene, this.camera);
+            if (this.map && this.manifest) {
+                const position = this.toWorld(this.camera.position);
+                const ark = this.map.coordinates.getArkCoordinates(position);
+                const text =
+                    `ARK: ${number(ark.lat)}, ${number(ark.long)}\nCCC: ${encodeCameraCode(
+                        [position.x, position.y, position.z],
+                        this.camera.getWorldDirection(new THREE.Vector3()),
+                    )}`;
+                const label = el('camera-details');
+                if (label.textContent !== text) label.textContent = text;
+            }
         });
         try {
             const maps = await this.getAvailableMaps();
@@ -388,12 +409,6 @@ export class Viewer {
         el('panel-toggle').addEventListener('click', () =>
             this.setPanelExpanded(el('control-panel').hidden),
         );
-        el('camera-projection').addEventListener('change', () => {
-            const projection = (el('camera-projection') as HTMLSelectElement).value;
-            if (projection !== 'perspective' && projection !== 'orthographic')
-                throw new Error('Unsupported camera projection.');
-            this.setProjection(projection);
-        });
         el('camera-copy').addEventListener('click', () => {
             void this.copyCoordinates();
         });
@@ -428,6 +443,11 @@ export class Viewer {
             }
         });
         el('world-model-retry').addEventListener('click', () => this.worldModel.retry());
+        el('debug-unpin').addEventListener('click', () => {
+            this.pinnedDebug = undefined;
+            this.clearVoxelInspection();
+            this.renderDebugInspection();
+        });
         el('world-boundary-retry').addEventListener('click', () => this.worldBoundaries.retry());
         input('world-cutaway').addEventListener('input', () => this.appearance());
         el('retry').addEventListener('click', () => {
@@ -653,12 +673,19 @@ export class Viewer {
             this.pick(event, false);
         });
         canvas.addEventListener('pointerleave', () => {
-            el('cursor-details').textContent = 'Cursor: —';
+            this.hoverDebug = undefined;
+            this.renderDebugInspection();
         });
     }
 
     private async load(key: string): Promise<void> {
         this.closeContextMenu();
+        this.pinnedDebug = undefined;
+        this.clearVoxelInspection();
+        this.hoverDebug = undefined;
+        el('world-dimensions').textContent = '';
+        el('camera-details').textContent = 'ARK: —\nCCC: —';
+        this.renderDebugInspection();
         this.stopFlight();
         this.surfaceDrag = undefined;
         this.touchPointers.clear();
@@ -895,20 +922,6 @@ export class Viewer {
         toggle.textContent = expanded ? '\u2039' : '\u203a';
     }
 
-    private setProjection(projection: Projection): void {
-        this.stopFlight();
-        const previous = this.camera.position.clone();
-        const rect = this.renderer.domElement.getBoundingClientRect();
-        this.camera = changeProjection(this.camera, this.controls.target, projection, rect.width / Math.max(1, rect.height));
-        this.controls.object = this.camera;
-        this.controls.update();
-        this.lastCameraPosition.copy(previous);
-        this.enforceCameraCollision();
-        this.lastCameraPosition.copy(this.camera.position);
-        this.surfaceDrag = undefined;
-        this.appearance();
-    }
-
     private home(top: boolean): void {
         if (!this.manifest) return;
         this.stopFlight();
@@ -940,7 +953,6 @@ export class Viewer {
         this.surfaceDrag = undefined;
         this.movementMode = mode;
         (el('movement-mode') as HTMLSelectElement).value = mode;
-        el('movement-mode-status').textContent = `Movement mode: ${mode === 'camera' ? 'Camera' : 'World'}`;
         el('camera-look-options').hidden = mode !== 'camera';
         this.controls.maxPolarAngle = mode === 'camera' ? Math.PI - 0.001 :
             this.worldModel.active ? Math.PI * 0.98 : Math.PI * 0.495;
@@ -1204,8 +1216,12 @@ export class Viewer {
         });
         this.worldBoundaries.group.visible = checked('show-world-boundaries');
         el('terrain-opacity-value').textContent = `${number(value('terrain-opacity') * 100)}%`;
-        el('debug-panel').hidden = !checked('debug-toggle');
+        if (this.voxelOutline) this.voxelOutline.visible = checked('debug-toggle');
         document.body.classList.toggle('show-debug', checked('debug-toggle'));
+        const c = this.map?.coordinates;
+        el('world-dimensions').textContent = c
+            ? `World:\nBounds:\n  X: ${number(c.minX)}…${number(c.maxX)}\n  Y: ${number(c.minY)}…${number(c.maxY)}\n  Z: ${number(c.minZ)}…${number(c.maxZ)}\nCenter: ${number(c.centerX)}, ${number(c.centerY)}\nScale: ${number(c.scaleX)}, ${number(c.scaleY)}`
+            : '';
         for (const layer of this.layers) {
             layer.points.material.size = value('resource-size');
             layer.glow.material.size = value('resource-size') * 2.5;
@@ -1228,14 +1244,38 @@ export class Viewer {
         if (ground) {
             const world = this.toWorld(ground.point);
             const ark = this.map.coordinates.getArkCoordinates(world);
-            el('cursor-details').textContent =
-                `Cursor: Lat ${ark.lat.toFixed(2)} / Long ${ark.long.toFixed(2)}`;
-            const c = this.map.coordinates;
-            el('debug-panel').textContent =
-                `Canvas ${number(event.clientX - rect.left)}, ${number(event.clientY - rect.top)}\nWorld XYZ (cm): ${number(world.x)}, ${number(world.y)}, ${number(world.z)}\nARK: ${number(ark.lat)}, ${number(ark.long)}\nBounds: ${number(c.minX)}…${number(c.maxX)} / ${number(c.minY)}…${number(c.maxY)}`;
-            el('debug-panel').textContent +=
-                `\nZ bounds: ${number(c.minZ)}…${number(c.maxZ)}\nCenter XY: ${number(c.centerX)}, ${number(c.centerY)}\nScale XY: ${number(c.scaleX)}, ${number(c.scaleY)}\nARK Z: ${number(ark.z)}`;
-        } else el('cursor-details').textContent = 'Cursor: no terrain';
+            const cubeSizeCm = this.worldModel.cubeSizeCm(ground.object);
+            let details = `CCC: ${encodeCameraCode(
+                [world.x, world.y, world.z],
+                this.camera.getWorldDirection(new THREE.Vector3()),
+            )}`;
+            let voxel: VoxelSelection | undefined;
+            let unpin = false;
+            if (cubeSizeCm !== undefined && ground.face && this.worldModelManifest) {
+                try {
+                    const n = ground.face.normal.clone().applyNormalMatrix(
+                        new THREE.Matrix3().getNormalMatrix(ground.object.matrixWorld));
+                    const normal = { x: n.x, y: n.z, z: n.y };
+                    voxel = voxelAt(world, normal, this.worldModelManifest.bounds, cubeSizeCm);
+                    details += `\nVoxel: ${voxel.tuple.slice(1, -1)}m`;
+                    const pinned = this.pinnedDebug?.voxel;
+                    unpin = pinned !== undefined &&
+                        voxelAt(world, normal, this.worldModelManifest.bounds, pinned.sizeCm).tuple === pinned.tuple;
+                } catch (error) {
+                    details += `\nVoxel selection failed: ${error instanceof Error ? error.message : String(error)}`;
+                }
+            }
+            details += `\nCanvas: ${number(event.clientX - rect.left)}, ${number(event.clientY - rect.top)}`;
+            this.hoverDebug = { ark: `${number(ark.lat)}, ${number(ark.long)}`, details, voxel };
+            if (select && checked('debug-toggle')) {
+                this.clearVoxelInspection();
+                this.pinnedDebug = unpin ? undefined : this.hoverDebug;
+                if (!unpin && voxel) this.pinVoxel(voxel);
+            }
+        } else {
+            this.hoverDebug = undefined;
+        }
+        this.renderDebugInspection();
         if (ray.params.Points)
             ray.params.Points.threshold =
                 worldUnitsPerPixel(this.camera, rect.height, this.camera.position.distanceTo(this.controls.target)) *
@@ -1258,8 +1298,38 @@ export class Viewer {
             const ark = this.map.coordinates.getArkCoordinates(point);
             const text = `${point.resourceType}${point.type === 'cluster' ? ` · ${point.count} nodes (centroid)` : ''}\nLat ${number(ark.lat)} / Long ${number(ark.long)}\nWorld XYZ (cm): ${number(point.x)}, ${number(point.y)}, ${number(point.z)}\nHeight ${number(point.z / 100)} m`;
             if (select) el('resource-details').textContent = text;
-            else el('cursor-details').textContent += `\n${text}`;
         } else if (select) el('resource-details').textContent = 'No resource selected.';
+    }
+
+    private renderDebugInspection(): void {
+        const inspection = this.pinnedDebug ?? this.hoverDebug;
+        el('cursor-details').textContent = `${this.pinnedDebug ? 'Pinned' : 'Cursor'}: ${inspection?.ark ?? '—'}`;
+        el('debug-inspection-details').textContent =
+            inspection?.details ?? '';
+        el('debug-unpin').hidden = this.pinnedDebug === undefined;
+    }
+
+    private clearVoxelInspection(): void {
+        if (this.voxelOutline) {
+            this.scene.remove(this.voxelOutline);
+            this.voxelOutline.geometry.dispose();
+            this.voxelOutline.material.dispose();
+            this.voxelOutline = undefined;
+        }
+    }
+
+    private pinVoxel(voxel: VoxelSelection): void {
+        const b = voxel.bounds, m = this.manifest!;
+        const box = new THREE.BoxGeometry((b.maxX - b.minX) / 100, (b.maxZ - b.minZ) / 100, (b.maxY - b.minY) / 100);
+        const outline = new THREE.LineSegments(new THREE.EdgesGeometry(box),
+            new THREE.LineBasicMaterial({ color: '#ffde89', depthTest: false, depthWrite: false, transparent: true, opacity: 0.95 }));
+        box.dispose();
+        outline.position.set((b.minX + b.maxX - m.originX - m.maxX) / 200,
+            (b.minZ + b.maxZ) / 200, (b.minY + b.maxY - m.originY - m.maxY) / 200);
+        outline.renderOrder = 1000;
+        outline.raycast = () => {};
+        this.scene.add(outline);
+        this.voxelOutline = outline;
     }
 
     private closeContextMenu(): void {

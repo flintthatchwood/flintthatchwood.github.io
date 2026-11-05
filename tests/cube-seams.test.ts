@@ -28,12 +28,51 @@ function patch(x0: number, x1: number, z0: number, z1: number, intervals = [[-10
     geometry.setIndex(indices);
     geometry.computeVertexNormals();
     const tile: WorldTile = {
-        id: `${x0}:${z0}`, bounds: { minX: x0 * 100, maxX: x1 * 100, minY: z0 * 100, maxY: z1 * 100, minZ: -100000, maxZ: 1000 },
+        id: `${x0}:${z0}`, bounds: { minX: x0 * 100, maxX: x1 * 100, minY: z0 * 100, maxY: z1 * 100, minZ: -100000, maxZ: 100000 },
         lods: [{ url: 'cube.awm', vertices: positions.length / 3, triangles: indices.length / 3, maxErrorCm: 200, cubeSizeCm: 100 }],
     };
     return { geometry, tile };
 }
 const bounds = { minX: 0, minY: 0, maxX: 200, maxY: 100 };
+function spatialBox(x: number, y: number, height = 1, solid = true, ignored = false) {
+    const geometry = solid ? new THREE.BoxGeometry(1, height, 1).translate(x + .5, y + height / 2, .5)
+        : new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([], 3)).setIndex([]);
+    const tile: WorldTile = {
+        id: `${x}:${y}`, bounds: { minX: x * 100, maxX: (x + 1) * 100, minY: 0, maxY: 100, minZ: y * 100, maxZ: (y + height) * 100 },
+        lods: [{ url: 'spatial.awm', vertices: 24, triangles: 12, maxErrorCm: 200, cubeSizeCm: 100 }],
+    };
+    for (const group of geometry.groups) group.materialIndex = ignored ? 5 : 0;
+    const result = extractCubeSurface(geometry, tile, 0, 0, true);
+    geometry.dispose();
+    return result;
+}
+
+test('spatial chunks cancel vertical interfaces and expose horizontal floors only against air', () => {
+    assert.ok(planCubeSeams([spatialBox(0, 0), spatialBox(0, 1)])
+        .every(p => p.faces.every(f => f.edge.axis !== 1 || f.edge.plane !== 1)));
+    const plans = planCubeSeams([spatialBox(0, 0), spatialBox(0, 1, 1, false)]);
+    const top = { ...plans[0], faces: plans[0].faces.filter(f => f.edge.axis === 1 && f.edge.side === 1) };
+    assert.equal(top.faces.length, 1);
+    const geometry = cubeSeamGeometry(top, bounds, 0, 0);
+    assert.equal(geometry.getAttribute('normal').getY(0), 1);
+    assert.equal(geometry.groups[0].materialIndex, 1);
+    geometry.dispose();
+});
+
+test('vertically stacked neighbors do not duplicate a shared lateral seam', () => {
+    const plans = planCubeSeams([spatialBox(0, 0, 2), spatialBox(1, 0), spatialBox(1, 1)]);
+    assert.ok(plans.every(p => p.faces.every(f => f.edge.axis !== 0 || f.edge.plane !== 1)));
+});
+
+test('omitted spatial air chunks expose solid faces, while ignored masks suppress artificial walls', () => {
+    assert.equal(planCubeSeams([spatialBox(0, 0)])[0].faces.length, 6);
+    const plans = planCubeSeams([spatialBox(0, 0), spatialBox(1, 0, 1, true, true)]);
+    assert.equal(plans[0].faces.length, 5);
+    assert.equal(plans[1].faces.length, 0);
+    const partial = planCubeSeams([spatialBox(0, 0), spatialBox(1, 0, .5, true, true)]);
+    assert.deepEqual(partial[0].faces.filter(f => f.edge.axis === 0 && f.edge.side === 1).map(f => f.rectangle),
+        [{ start: 0, end: 1, low: .5, high: 1 }]);
+});
 function surface(p: ReturnType<typeof patch>) {
     return extractCubeSurface(p.geometry, p.tile, 0, 0);
 }

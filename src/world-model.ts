@@ -3,6 +3,7 @@ import { worldUnitsPerPixel, type MapCamera } from './camera-view.js';
 import { boundedResponse } from './bounded-response.js';
 import type { CoordinateSystem } from './data/types.js';
 import { ProgressiveWorld, attachWorldMorph, cubeSizeFactors } from './progressive-world.js';
+import { validateVoxelReference, VoxelReferenceReader, type VoxelReference } from './voxel-inspection.js';
 
 export const WORLD_TILE_BYTES = 32 * 1024 * 1024;
 export const WORLD_RESIDENT_BYTES = 96 * 1024 * 1024;
@@ -22,6 +23,8 @@ export interface WorldLod {
     maxErrorCm: number;
     morph?: boolean;
     cubeSizeCm?: number;
+    byteOffset?: number;
+    byteLength?: number;
 }
 export interface WorldTile {
     id: string;
@@ -42,6 +45,7 @@ export interface WorldModelManifest {
     statistics: Record<string, unknown>;
     tiles: WorldTile[];
     roots?: string[];
+    voxelInspection?: VoxelReference;
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -93,6 +97,10 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
     const progressive = v.roots !== undefined;
     const statistics = object(v.statistics);
     const cubes = progressive && statistics.hierarchyVersion === 3;
+    const spatial = cubes && statistics.partitionDimensions === 3;
+    if (cubes && statistics.partitionDimensions !== undefined &&
+        statistics.partitionDimensions !== 2 && statistics.partitionDimensions !== 3)
+        throw new Error('Unsupported cube partition dimensions.');
     if (
         v.version !== 1 ||
         v.mapKey !== mapKey ||
@@ -157,6 +165,10 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
                 vertices: integer(l.vertices, 3, 10_000_000),
                 triangles: integer(l.triangles, 1, 10_000_000),
                 maxErrorCm: number(l.maxErrorCm, 0, 100_000),
+                ...(l.byteOffset !== undefined || l.byteLength !== undefined ? {
+                    byteOffset: integer(l.byteOffset, 0, Number.MAX_SAFE_INTEGER),
+                    byteLength: integer(l.byteLength, 1, WORLD_TILE_BYTES + 65536),
+                } : {}),
                 ...(cubes
                     ? { cubeSizeCm: number(l.cubeSizeCm, 100, 6400) }
                     : progressive
@@ -172,11 +184,13 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
                 throw new Error('Cube patches require aligned non-morphing cube sizes.');
             if (
                 (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) &&
-                    !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp)$/.test(lod.url)) ||
+                    !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp|awmb)$/.test(lod.url)) ||
                 /[\s\\]/.test(lod.url) ||
                 lod.url.split('/').includes('..') ||
                 worldBinaryBytes(lod) > WORLD_TILE_BYTES ||
-                lod.maxErrorCm < previousError
+                lod.maxErrorCm < previousError ||
+                (lod.url.endsWith('.awmb') !== (lod.byteOffset !== undefined)) ||
+                (lod.byteOffset !== undefined && (!cubes || !Number.isSafeInteger(lod.byteOffset + lod.byteLength!)))
             )
                 throw new Error('Invalid world-model LOD, mesh URL or 32 MiB tile budget.');
             previousError = lod.maxErrorCm;
@@ -247,7 +261,8 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
                     const a = base[i].bounds, b = base[j].bounds;
                     if (
                         Math.min(a.maxX, b.maxX) > Math.max(a.minX, b.minX) &&
-                        Math.min(a.maxY, b.maxY) > Math.max(a.minY, b.minY)
+                        Math.min(a.maxY, b.maxY) > Math.max(a.minY, b.minY) &&
+                        (!spatial || Math.min(a.maxZ, b.maxZ) > Math.max(a.minZ, b.minZ))
                     )
                         throw new Error('Overlapping complete-base cube partitions.');
                 }
@@ -271,6 +286,8 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
         statistics,
         tiles,
         ...(roots ? { roots } : {}),
+        ...(v.voxelInspection !== undefined
+            ? { voxelInspection: validateVoxelReference(v.voxelInspection, b, tileSize) } : {}),
     };
 }
 
@@ -282,6 +299,7 @@ export function worldGeometry(
     centerY: number,
     mapBounds: Pick<CoordinateSystem, 'minX' | 'minY' | 'maxX' | 'maxY'>,
     textureBlockSides = false,
+    spatial = false,
 ): THREE.BufferGeometry {
     const view = new DataView(buffer);
     if (
@@ -331,13 +349,14 @@ export function worldGeometry(
     }
     const indexStart = 16 + lod.vertices * 12;
     const flagStart = indexStart + lod.triangles * 12;
-    const counts = [0, 0, 0, 0, 0];
+    const counts = [0, 0, 0, 0, 0, 0];
     const surfaceGroups = new Uint8Array(lod.triangles);
     const coordinate = (vertex: number, axis: number) =>
         view.getFloat32(16 + vertex * 12 + axis * 4, true);
     for (let i = 0; i < lod.triangles; i++) {
         const flag = view.getUint8(flagStart + i);
-        if (flag > 3) throw new Error('Unknown world-model surface flags.');
+        if (flag > 3 && !(spatial && lod.cubeSizeCm && flag === 8))
+            throw new Error('Unknown world-model surface flags.');
         const a = view.getUint32(indexStart + i * 12, true),
             b = view.getUint32(indexStart + i * 12 + 4, true),
             c = view.getUint32(indexStart + i * 12 + 8, true);
@@ -364,7 +383,7 @@ export function worldGeometry(
         if (lod.cubeSizeCm && Number(nx !== 0) + Number(ny !== 0) + Number(nz !== 0) !== 1)
             throw new Error('Cube faces must remain axis-aligned.');
         // Vertical block faces already have identical UVs along each vertical edge.
-        const group = textureBlockSides && flag === 0 && nz === 0 ? 4 : flag;
+        const group = flag === 8 ? 5 : textureBlockSides && flag === 0 && nz === 0 ? 4 : flag;
         surfaceGroups[i] = group;
         counts[group] += 3;
     }
@@ -618,6 +637,7 @@ export class WorldModelLayer {
     readonly clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e9);
     private manifest?: WorldModelManifest;
     private context?: Context;
+    private voxelReader?: VoxelReferenceReader;
     private controller?: AbortController;
     private revision = 0;
     private resident = new Map<string, Resident>();
@@ -648,6 +668,17 @@ export class WorldModelLayer {
         if (this.progressive) return this.progressive.meshes;
         return [...this.resident.values()].map((item) => item.mesh);
     }
+    cubeSizeCm(object: THREE.Object3D): number | undefined {
+        if (this.progressive) return this.progressive.cubeSizeCm(object);
+        for (const item of this.resident.values())
+            if (item.mesh === object) return item.tile.lods[item.lod].cubeSizeCm;
+        return undefined;
+    }
+    voxelFill(bounds: WorldBounds, signal: AbortSignal): Promise<number> | undefined {
+        if (!this.manifest?.voxelInspection || !this.context) return undefined;
+        this.voxelReader ??= new VoxelReferenceReader(this.manifest.voxelInspection, this.context.url, this.request);
+        return this.voxelReader.fill(bounds, signal);
+    }
     get active(): boolean {
         return !!this.context;
     }
@@ -671,6 +702,7 @@ export class WorldModelLayer {
         this.wireMaterial = undefined;
         this.clipPlane.constant = 1e9;
         this.context = undefined;
+        this.voxelReader = undefined;
         this.manifest = undefined;
         this.desired = [];
         this.failed.clear();
@@ -771,7 +803,7 @@ export class WorldModelLayer {
             c = this.context;
         if (!m || !c) return;
         if (this.progressive) {
-            this.progressive.update(camera, height, this.appearance.exaggeration, target);
+            this.progressive.update(camera, height, this.appearance.exaggeration);
             return;
         }
         this.desired = selectWorldTiles(
@@ -819,13 +851,14 @@ export class WorldModelLayer {
         const context = this.context;
         if (!context) throw new Error('World-model material context is missing.');
         const { mapBounds: c, centerX, centerY } = context;
+        const coverage = this.manifest?.bounds ?? c;
         const clippingPlanes = [
             this.clipPlane,
             ...(this.manifest?.statistics.representation === 'world-boundaries' ? [] : [
-            new THREE.Plane(new THREE.Vector3(1, 0, 0), (centerX - c.minX) / 100),
-            new THREE.Plane(new THREE.Vector3(-1, 0, 0), (c.maxX - centerX) / 100),
-            new THREE.Plane(new THREE.Vector3(0, 0, 1), (centerY - c.minY) / 100),
-            new THREE.Plane(new THREE.Vector3(0, 0, -1), (c.maxY - centerY) / 100),
+            new THREE.Plane(new THREE.Vector3(1, 0, 0), (centerX - coverage.minX) / 100),
+            new THREE.Plane(new THREE.Vector3(-1, 0, 0), (coverage.maxX - centerX) / 100),
+            new THREE.Plane(new THREE.Vector3(0, 0, 1), (centerY - coverage.minY) / 100),
+            new THREE.Plane(new THREE.Vector3(0, 0, -1), (coverage.maxY - centerY) / 100),
             ]),
         ];
         const old = this.materials;

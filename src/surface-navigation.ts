@@ -176,12 +176,6 @@ export function dollySurface(
         maximumDistance <= MIN_FOCUS_DISTANCE
     )
         throw new Error('Invalid surface-navigation dolly input.');
-    if (camera instanceof THREE.OrthographicCamera) {
-        camera.zoom = THREE.MathUtils.clamp(camera.zoom * Math.exp(-THREE.MathUtils.clamp(pixels * ZOOM_GAIN, -20, 20)), 0.01, 100000);
-        camera.updateProjectionMatrix();
-        camera.updateMatrixWorld();
-        return camera.position.distanceTo(lookTarget);
-    }
     const focus = (surface ?? lookTarget).clone();
     const distance = camera.position.distanceTo(focus);
     if (distance <= 0 && !surface)

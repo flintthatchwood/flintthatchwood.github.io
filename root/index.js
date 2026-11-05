@@ -2398,9 +2398,9 @@
       this.max.copy(center).add(halfSize);
       return this;
     }
-    setFromObject(object2) {
+    setFromObject(object3) {
       this.makeEmpty();
-      return this.expandByObject(object2);
+      return this.expandByObject(object3);
     }
     clone() {
       return new this.constructor().copy(this);
@@ -2447,18 +2447,18 @@
       this.max.addScalar(scalar);
       return this;
     }
-    expandByObject(object2) {
-      object2.updateWorldMatrix(false, false);
-      const geometry = object2.geometry;
+    expandByObject(object3) {
+      object3.updateWorldMatrix(false, false);
+      const geometry = object3.geometry;
       if (geometry !== void 0) {
         if (geometry.boundingBox === null) {
           geometry.computeBoundingBox();
         }
         _box$3.copy(geometry.boundingBox);
-        _box$3.applyMatrix4(object2.matrixWorld);
+        _box$3.applyMatrix4(object3.matrixWorld);
         this.union(_box$3);
       }
-      const children = object2.children;
+      const children = object3.children;
       for (let i = 0, l = children.length; i < l; i++) {
         this.expandByObject(children[i]);
       }
@@ -2525,7 +2525,7 @@
       _f0.subVectors(_v1$7, _v0$2);
       _f1.subVectors(_v2$3, _v1$7);
       _f2.subVectors(_v0$2, _v2$3);
-      let axes = [
+      let axes2 = [
         0,
         -_f0.z,
         _f0.y,
@@ -2554,16 +2554,16 @@
         _f2.x,
         0
       ];
-      if (!satForAxes(axes, _v0$2, _v1$7, _v2$3, _extents)) {
+      if (!satForAxes(axes2, _v0$2, _v1$7, _v2$3, _extents)) {
         return false;
       }
-      axes = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-      if (!satForAxes(axes, _v0$2, _v1$7, _v2$3, _extents)) {
+      axes2 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+      if (!satForAxes(axes2, _v0$2, _v1$7, _v2$3, _extents)) {
         return false;
       }
       _triangleNormal.crossVectors(_f0, _f1);
-      axes = [_triangleNormal.x, _triangleNormal.y, _triangleNormal.z];
-      return satForAxes(axes, _v0$2, _v1$7, _v2$3, _extents);
+      axes2 = [_triangleNormal.x, _triangleNormal.y, _triangleNormal.z];
+      return satForAxes(axes2, _v0$2, _v1$7, _v2$3, _extents);
     }
     clampPoint(point, target) {
       if (target === void 0) {
@@ -2640,9 +2640,9 @@
   var _extents = /* @__PURE__ */ new Vector3();
   var _triangleNormal = /* @__PURE__ */ new Vector3();
   var _testAxis = /* @__PURE__ */ new Vector3();
-  function satForAxes(axes, v0, v1, v2, extents) {
-    for (let i = 0, j = axes.length - 3; i <= j; i += 3) {
-      _testAxis.fromArray(axes, i);
+  function satForAxes(axes2, v0, v1, v2, extents) {
+    for (let i = 0, j = axes2.length - 3; i <= j; i += 3) {
+      _testAxis.fromArray(axes2, i);
       const r = extents.x * Math.abs(_testAxis.x) + extents.y * Math.abs(_testAxis.y) + extents.z * Math.abs(_testAxis.z);
       const p0 = v0.dot(_testAxis);
       const p1 = v1.dot(_testAxis);
@@ -4125,63 +4125,63 @@
         this.quaternion.premultiply(_q1.invert());
       }
     }
-    add(object2) {
+    add(object3) {
       if (arguments.length > 1) {
         for (let i = 0; i < arguments.length; i++) {
           this.add(arguments[i]);
         }
         return this;
       }
-      if (object2 === this) {
-        console.error("THREE.Object3D.add: object can't be added as a child of itself.", object2);
+      if (object3 === this) {
+        console.error("THREE.Object3D.add: object can't be added as a child of itself.", object3);
         return this;
       }
-      if (object2 && object2.isObject3D) {
-        if (object2.parent !== null) {
-          object2.parent.remove(object2);
+      if (object3 && object3.isObject3D) {
+        if (object3.parent !== null) {
+          object3.parent.remove(object3);
         }
-        object2.parent = this;
-        this.children.push(object2);
-        object2.dispatchEvent(_addedEvent);
+        object3.parent = this;
+        this.children.push(object3);
+        object3.dispatchEvent(_addedEvent);
       } else {
-        console.error("THREE.Object3D.add: object not an instance of THREE.Object3D.", object2);
+        console.error("THREE.Object3D.add: object not an instance of THREE.Object3D.", object3);
       }
       return this;
     }
-    remove(object2) {
+    remove(object3) {
       if (arguments.length > 1) {
         for (let i = 0; i < arguments.length; i++) {
           this.remove(arguments[i]);
         }
         return this;
       }
-      const index = this.children.indexOf(object2);
+      const index = this.children.indexOf(object3);
       if (index !== -1) {
-        object2.parent = null;
+        object3.parent = null;
         this.children.splice(index, 1);
-        object2.dispatchEvent(_removedEvent);
+        object3.dispatchEvent(_removedEvent);
       }
       return this;
     }
     clear() {
       for (let i = 0; i < this.children.length; i++) {
-        const object2 = this.children[i];
-        object2.parent = null;
-        object2.dispatchEvent(_removedEvent);
+        const object3 = this.children[i];
+        object3.parent = null;
+        object3.dispatchEvent(_removedEvent);
       }
       this.children.length = 0;
       return this;
     }
-    attach(object2) {
+    attach(object3) {
       this.updateWorldMatrix(true, false);
       _m1$1.copy(this.matrixWorld).invert();
-      if (object2.parent !== null) {
-        object2.parent.updateWorldMatrix(true, false);
-        _m1$1.multiply(object2.parent.matrixWorld);
+      if (object3.parent !== null) {
+        object3.parent.updateWorldMatrix(true, false);
+        _m1$1.multiply(object3.parent.matrixWorld);
       }
-      object2.applyMatrix4(_m1$1);
-      this.add(object2);
-      object2.updateWorldMatrix(false, true);
+      object3.applyMatrix4(_m1$1);
+      this.add(object3);
+      object3.updateWorldMatrix(false, true);
       return this;
     }
     getObjectById(id) {
@@ -4194,9 +4194,9 @@
       if (this[name] === value2) return this;
       for (let i = 0, l = this.children.length; i < l; i++) {
         const child = this.children[i];
-        const object2 = child.getObjectByProperty(name, value2);
-        if (object2 !== void 0) {
-          return object2;
+        const object3 = child.getObjectByProperty(name, value2);
+        if (object3 !== void 0) {
+          return object3;
         }
       }
       return void 0;
@@ -4317,24 +4317,24 @@
           generator: "Object3D.toJSON"
         };
       }
-      const object2 = {};
-      object2.uuid = this.uuid;
-      object2.type = this.type;
-      if (this.name !== "") object2.name = this.name;
-      if (this.castShadow === true) object2.castShadow = true;
-      if (this.receiveShadow === true) object2.receiveShadow = true;
-      if (this.visible === false) object2.visible = false;
-      if (this.frustumCulled === false) object2.frustumCulled = false;
-      if (this.renderOrder !== 0) object2.renderOrder = this.renderOrder;
-      if (JSON.stringify(this.userData) !== "{}") object2.userData = this.userData;
-      object2.layers = this.layers.mask;
-      object2.matrix = this.matrix.toArray();
-      if (this.matrixAutoUpdate === false) object2.matrixAutoUpdate = false;
+      const object3 = {};
+      object3.uuid = this.uuid;
+      object3.type = this.type;
+      if (this.name !== "") object3.name = this.name;
+      if (this.castShadow === true) object3.castShadow = true;
+      if (this.receiveShadow === true) object3.receiveShadow = true;
+      if (this.visible === false) object3.visible = false;
+      if (this.frustumCulled === false) object3.frustumCulled = false;
+      if (this.renderOrder !== 0) object3.renderOrder = this.renderOrder;
+      if (JSON.stringify(this.userData) !== "{}") object3.userData = this.userData;
+      object3.layers = this.layers.mask;
+      object3.matrix = this.matrix.toArray();
+      if (this.matrixAutoUpdate === false) object3.matrixAutoUpdate = false;
       if (this.isInstancedMesh) {
-        object2.type = "InstancedMesh";
-        object2.count = this.count;
-        object2.instanceMatrix = this.instanceMatrix.toJSON();
-        if (this.instanceColor !== null) object2.instanceColor = this.instanceColor.toJSON();
+        object3.type = "InstancedMesh";
+        object3.count = this.count;
+        object3.instanceMatrix = this.instanceMatrix.toJSON();
+        if (this.instanceColor !== null) object3.instanceColor = this.instanceColor.toJSON();
       }
       function serialize(library, element) {
         if (library[element.uuid] === void 0) {
@@ -4343,7 +4343,7 @@
         return element.uuid;
       }
       if (this.isMesh || this.isLine || this.isPoints) {
-        object2.geometry = serialize(meta.geometries, this.geometry);
+        object3.geometry = serialize(meta.geometries, this.geometry);
         const parameters = this.geometry.parameters;
         if (parameters !== void 0 && parameters.shapes !== void 0) {
           const shapes = parameters.shapes;
@@ -4358,11 +4358,11 @@
         }
       }
       if (this.isSkinnedMesh) {
-        object2.bindMode = this.bindMode;
-        object2.bindMatrix = this.bindMatrix.toArray();
+        object3.bindMode = this.bindMode;
+        object3.bindMatrix = this.bindMatrix.toArray();
         if (this.skeleton !== void 0) {
           serialize(meta.skeletons, this.skeleton);
-          object2.skeleton = this.skeleton.uuid;
+          object3.skeleton = this.skeleton.uuid;
         }
       }
       if (this.material !== void 0) {
@@ -4371,22 +4371,22 @@
           for (let i = 0, l = this.material.length; i < l; i++) {
             uuids.push(serialize(meta.materials, this.material[i]));
           }
-          object2.material = uuids;
+          object3.material = uuids;
         } else {
-          object2.material = serialize(meta.materials, this.material);
+          object3.material = serialize(meta.materials, this.material);
         }
       }
       if (this.children.length > 0) {
-        object2.children = [];
+        object3.children = [];
         for (let i = 0; i < this.children.length; i++) {
-          object2.children.push(this.children[i].toJSON(meta).object);
+          object3.children.push(this.children[i].toJSON(meta).object);
         }
       }
       if (this.animations.length > 0) {
-        object2.animations = [];
+        object3.animations = [];
         for (let i = 0; i < this.animations.length; i++) {
           const animation = this.animations[i];
-          object2.animations.push(serialize(meta.animations, animation));
+          object3.animations.push(serialize(meta.animations, animation));
         }
       }
       if (isRootObject) {
@@ -4405,7 +4405,7 @@
         if (skeletons.length > 0) output.skeletons = skeletons;
         if (animations.length > 0) output.animations = animations;
       }
-      output.object = object2;
+      output.object = object3;
       return output;
       function extractFromCache(cache) {
         const values = [];
@@ -6540,7 +6540,7 @@
     }
   };
   Mesh.prototype.isMesh = true;
-  function checkIntersection(object2, material, raycaster, ray, pA, pB, pC, point) {
+  function checkIntersection(object3, material, raycaster, ray, pA, pB, pC, point) {
     let intersect;
     if (material.side === BackSide) {
       intersect = ray.intersectTriangle(pC, pB, pA, true, point);
@@ -6549,20 +6549,20 @@
     }
     if (intersect === null) return null;
     _intersectionPointWorld.copy(point);
-    _intersectionPointWorld.applyMatrix4(object2.matrixWorld);
+    _intersectionPointWorld.applyMatrix4(object3.matrixWorld);
     const distance = raycaster.ray.origin.distanceTo(_intersectionPointWorld);
     if (distance < raycaster.near || distance > raycaster.far) return null;
     return {
       distance,
       point: _intersectionPointWorld.clone(),
-      object: object2
+      object: object3
     };
   }
-  function checkBufferGeometryIntersection(object2, material, raycaster, ray, position, morphPosition, morphTargetsRelative, uv, uv2, a, b, c) {
+  function checkBufferGeometryIntersection(object3, material, raycaster, ray, position, morphPosition, morphTargetsRelative, uv, uv2, a, b, c) {
     _vA$1.fromBufferAttribute(position, a);
     _vB$1.fromBufferAttribute(position, b);
     _vC$1.fromBufferAttribute(position, c);
-    const morphInfluences = object2.morphTargetInfluences;
+    const morphInfluences = object3.morphTargetInfluences;
     if (material.morphTargets && morphPosition && morphInfluences) {
       _morphA.set(0, 0, 0);
       _morphB.set(0, 0, 0);
@@ -6588,12 +6588,12 @@
       _vB$1.add(_morphB);
       _vC$1.add(_morphC);
     }
-    if (object2.isSkinnedMesh && material.skinning) {
-      object2.boneTransform(a, _vA$1);
-      object2.boneTransform(b, _vB$1);
-      object2.boneTransform(c, _vC$1);
+    if (object3.isSkinnedMesh && material.skinning) {
+      object3.boneTransform(a, _vA$1);
+      object3.boneTransform(b, _vB$1);
+      object3.boneTransform(c, _vC$1);
     }
-    const intersection = checkIntersection(object2, material, raycaster, ray, _vA$1, _vB$1, _vC$1, _intersectionPoint);
+    const intersection = checkIntersection(object3, material, raycaster, ray, _vA$1, _vB$1, _vC$1, _intersectionPoint);
     if (intersection) {
       if (uv) {
         _uvA$1.fromBufferAttribute(uv, a);
@@ -7272,10 +7272,10 @@
       planes[5].setComponents(me3 + me2, me7 + me6, me11 + me10, me15 + me14).normalize();
       return this;
     }
-    intersectsObject(object2) {
-      const geometry = object2.geometry;
+    intersectsObject(object3) {
+      const geometry = object3.geometry;
       if (geometry.boundingSphere === null) geometry.computeBoundingSphere();
-      _sphere$2.copy(geometry.boundingSphere).applyMatrix4(object2.matrixWorld);
+      _sphere$2.copy(geometry.boundingSphere).applyMatrix4(object3.matrixWorld);
       return this.intersectsSphere(_sphere$2);
     }
     intersectsSprite(sprite) {
@@ -8267,7 +8267,7 @@
     const bindingStates = {};
     const defaultState = createBindingState(null);
     let currentState = defaultState;
-    function setup(object2, material, program, geometry, index) {
+    function setup(object3, material, program, geometry, index) {
       let updateBuffers = false;
       if (vaoAvailable) {
         const state = getBindingState(geometry, program, material);
@@ -8286,14 +8286,14 @@
           updateBuffers = true;
         }
       }
-      if (object2.isInstancedMesh === true) {
+      if (object3.isInstancedMesh === true) {
         updateBuffers = true;
       }
       if (index !== null) {
         attributes.update(index, 34963);
       }
       if (updateBuffers) {
-        setupVertexAttributes(object2, material, program, geometry);
+        setupVertexAttributes(object3, material, program, geometry);
         if (index !== null) {
           gl.bindBuffer(34963, attributes.get(index).buffer);
         }
@@ -8427,8 +8427,8 @@
         gl.vertexAttribPointer(index, size, type, normalized, stride, offset);
       }
     }
-    function setupVertexAttributes(object2, material, program, geometry) {
-      if (capabilities.isWebGL2 === false && (object2.isInstancedMesh || geometry.isInstancedBufferGeometry)) {
+    function setupVertexAttributes(object3, material, program, geometry) {
+      if (capabilities.isWebGL2 === false && (object3.isInstancedMesh || geometry.isInstancedBufferGeometry)) {
         if (extensions.get("ANGLE_instanced_arrays") === null) return;
       }
       initAttributes();
@@ -8474,7 +8474,7 @@
               vertexAttribPointer(programAttribute, size, type, normalized, 0, 0);
             }
           } else if (name === "instanceMatrix") {
-            const attribute = attributes.get(object2.instanceMatrix);
+            const attribute = attributes.get(object3.instanceMatrix);
             if (attribute === void 0) continue;
             const buffer = attribute.buffer;
             const type = attribute.type;
@@ -8488,7 +8488,7 @@
             gl.vertexAttribPointer(programAttribute + 2, 4, type, false, 64, 32);
             gl.vertexAttribPointer(programAttribute + 3, 4, type, false, 64, 48);
           } else if (name === "instanceColor") {
-            const attribute = attributes.get(object2.instanceColor);
+            const attribute = attributes.get(object3.instanceColor);
             if (attribute === void 0) continue;
             const buffer = attribute.buffer;
             const type = attribute.type;
@@ -8887,7 +8887,7 @@
       }
       info.memory.geometries--;
     }
-    function get(object2, geometry) {
+    function get(object3, geometry) {
       if (geometries[geometry.id] === true) return geometry;
       geometry.addEventListener("dispose", onGeometryDispose);
       geometries[geometry.id] = true;
@@ -9058,8 +9058,8 @@
     for (let i = 0; i < 8; i++) {
       workInfluences[i] = [i, 0];
     }
-    function update(object2, geometry, material, program) {
-      const objectInfluences = object2.morphTargetInfluences;
+    function update(object3, geometry, material, program) {
+      const objectInfluences = object3.morphTargetInfluences;
       const length = objectInfluences === void 0 ? 0 : objectInfluences.length;
       let influences = influencesList[geometry.id];
       if (influences === void 0) {
@@ -9121,21 +9121,21 @@
   }
   function WebGLObjects(gl, geometries, attributes, info) {
     let updateMap = /* @__PURE__ */ new WeakMap();
-    function update(object2) {
+    function update(object3) {
       const frame = info.render.frame;
-      const geometry = object2.geometry;
-      const buffergeometry = geometries.get(object2, geometry);
+      const geometry = object3.geometry;
+      const buffergeometry = geometries.get(object3, geometry);
       if (updateMap.get(buffergeometry) !== frame) {
         geometries.update(buffergeometry);
         updateMap.set(buffergeometry, frame);
       }
-      if (object2.isInstancedMesh) {
-        if (object2.hasEventListener("dispose", onInstancedMeshDispose) === false) {
-          object2.addEventListener("dispose", onInstancedMeshDispose);
+      if (object3.isInstancedMesh) {
+        if (object3.hasEventListener("dispose", onInstancedMeshDispose) === false) {
+          object3.addEventListener("dispose", onInstancedMeshDispose);
         }
-        attributes.update(object2.instanceMatrix, 34962);
-        if (object2.instanceColor !== null) {
-          attributes.update(object2.instanceColor, 34962);
+        attributes.update(object3.instanceMatrix, 34962);
+        if (object3.instanceColor !== null) {
+          attributes.update(object3.instanceColor, 34962);
         }
       }
       return buffergeometry;
@@ -9711,8 +9711,8 @@
     const u = this.map[name];
     if (u !== void 0) u.setValue(gl, value2, textures);
   };
-  WebGLUniforms.prototype.setOptional = function(gl, object2, name) {
-    const v = object2[name];
+  WebGLUniforms.prototype.setOptional = function(gl, object3, name) {
+    const v = object3[name];
     if (v !== void 0) this.setValue(gl, name, v);
   };
   WebGLUniforms.upload = function(gl, seq, values, textures) {
@@ -10332,8 +10332,8 @@
       "sheen",
       "transmissionMap"
     ];
-    function getMaxBones(object2) {
-      const skeleton = object2.skeleton;
+    function getMaxBones(object3) {
+      const skeleton = object3.skeleton;
       const bones = skeleton.bones;
       if (floatVertexTextures) {
         return 1024;
@@ -10360,12 +10360,12 @@
       }
       return encoding;
     }
-    function getParameters(material, lights, shadows, scene, object2) {
+    function getParameters(material, lights, shadows, scene, object3) {
       const fog = scene.fog;
       const environment = material.isMeshStandardMaterial ? scene.environment : null;
       const envMap = cubemaps.get(material.envMap || environment);
       const shaderID = shaderIDs[material.type];
-      const maxBones = object2.isSkinnedMesh ? getMaxBones(object2) : 0;
+      const maxBones = object3.isSkinnedMesh ? getMaxBones(object3) : 0;
       if (material.precision !== null) {
         precision = capabilities.getMaxPrecision(material.precision);
         if (precision !== material.precision) {
@@ -10392,8 +10392,8 @@
         isRawShaderMaterial: material.isRawShaderMaterial === true,
         glslVersion: material.glslVersion,
         precision,
-        instancing: object2.isInstancedMesh === true,
-        instancingColor: object2.isInstancedMesh === true && object2.instanceColor !== null,
+        instancing: object3.isInstancedMesh === true,
+        instancingColor: object3.isInstancedMesh === true && object3.instanceColor !== null,
         supportsVertexTextures: vertexTextures,
         outputEncoding: currentRenderTarget !== null ? getTextureEncodingFromMap(currentRenderTarget.texture) : renderer.outputEncoding,
         map: !!material.map,
@@ -10427,7 +10427,7 @@
         combine: material.combine,
         vertexTangents: material.normalMap && material.vertexTangents,
         vertexColors: material.vertexColors,
-        vertexAlphas: material.vertexColors === true && object2.geometry && object2.geometry.attributes.color && object2.geometry.attributes.color.itemSize === 4,
+        vertexAlphas: material.vertexColors === true && object3.geometry && object3.geometry.attributes.color && object3.geometry.attributes.color.itemSize === 4,
         vertexUvs: !!material.map || !!material.bumpMap || !!material.normalMap || !!material.specularMap || !!material.alphaMap || !!material.emissiveMap || !!material.roughnessMap || !!material.metalnessMap || !!material.clearcoatMap || !!material.clearcoatRoughnessMap || !!material.clearcoatNormalMap || !!material.displacementMap || !!material.transmissionMap,
         uvsVertexOnly: !(!!material.map || !!material.bumpMap || !!material.normalMap || !!material.specularMap || !!material.alphaMap || !!material.emissiveMap || !!material.roughnessMap || !!material.metalnessMap || !!material.clearcoatNormalMap || !!material.transmissionMap) && !!material.displacementMap,
         fog: !!fog,
@@ -10544,19 +10544,19 @@
   }
   function WebGLProperties() {
     let properties = /* @__PURE__ */ new WeakMap();
-    function get(object2) {
-      let map = properties.get(object2);
+    function get(object3) {
+      let map = properties.get(object3);
       if (map === void 0) {
         map = {};
-        properties.set(object2, map);
+        properties.set(object3, map);
       }
       return map;
     }
-    function remove(object2) {
-      properties.delete(object2);
+    function remove(object3) {
+      properties.delete(object3);
     }
-    function update(object2, key, value2) {
-      properties.get(object2)[key] = value2;
+    function update(object3, key, value2) {
+      properties.get(object3)[key] = value2;
     }
     function dispose2() {
       properties = /* @__PURE__ */ new WeakMap();
@@ -10605,42 +10605,42 @@
       opaque.length = 0;
       transparent.length = 0;
     }
-    function getNextRenderItem(object2, geometry, material, groupOrder, z, group) {
+    function getNextRenderItem(object3, geometry, material, groupOrder, z, group) {
       let renderItem = renderItems[renderItemsIndex];
       const materialProperties = properties.get(material);
       if (renderItem === void 0) {
         renderItem = {
-          id: object2.id,
-          object: object2,
+          id: object3.id,
+          object: object3,
           geometry,
           material,
           program: materialProperties.program || defaultProgram,
           groupOrder,
-          renderOrder: object2.renderOrder,
+          renderOrder: object3.renderOrder,
           z,
           group
         };
         renderItems[renderItemsIndex] = renderItem;
       } else {
-        renderItem.id = object2.id;
-        renderItem.object = object2;
+        renderItem.id = object3.id;
+        renderItem.object = object3;
         renderItem.geometry = geometry;
         renderItem.material = material;
         renderItem.program = materialProperties.program || defaultProgram;
         renderItem.groupOrder = groupOrder;
-        renderItem.renderOrder = object2.renderOrder;
+        renderItem.renderOrder = object3.renderOrder;
         renderItem.z = z;
         renderItem.group = group;
       }
       renderItemsIndex++;
       return renderItem;
     }
-    function push(object2, geometry, material, groupOrder, z, group) {
-      const renderItem = getNextRenderItem(object2, geometry, material, groupOrder, z, group);
+    function push(object3, geometry, material, groupOrder, z, group) {
+      const renderItem = getNextRenderItem(object3, geometry, material, groupOrder, z, group);
       (material.transparent === true ? transparent : opaque).push(renderItem);
     }
-    function unshift(object2, geometry, material, groupOrder, z, group) {
-      const renderItem = getNextRenderItem(object2, geometry, material, groupOrder, z, group);
+    function unshift(object3, geometry, material, groupOrder, z, group) {
+      const renderItem = getNextRenderItem(object3, geometry, material, groupOrder, z, group);
       (material.transparent === true ? transparent : opaque).unshift(renderItem);
     }
     function sort(customOpaqueSort, customTransparentSort) {
@@ -11310,13 +11310,13 @@
       }
       return material;
     }
-    function getDepthMaterial(object2, geometry, material, light, shadowCameraNear, shadowCameraFar, type) {
+    function getDepthMaterial(object3, geometry, material, light, shadowCameraNear, shadowCameraFar, type) {
       let result = null;
       let getMaterialVariant = getDepthMaterialVariant;
-      let customMaterial = object2.customDepthMaterial;
+      let customMaterial = object3.customDepthMaterial;
       if (light.isPointLight === true) {
         getMaterialVariant = getDistanceMaterialVariant;
-        customMaterial = object2.customDistanceMaterial;
+        customMaterial = object3.customDistanceMaterial;
       }
       if (customMaterial === void 0) {
         let useMorphing = false;
@@ -11324,14 +11324,14 @@
           useMorphing = geometry.morphAttributes && geometry.morphAttributes.position && geometry.morphAttributes.position.length > 0;
         }
         let useSkinning = false;
-        if (object2.isSkinnedMesh === true) {
+        if (object3.isSkinnedMesh === true) {
           if (material.skinning === true) {
             useSkinning = true;
           } else {
-            console.warn("THREE.WebGLShadowMap: THREE.SkinnedMesh with material.skinning set to false:", object2);
+            console.warn("THREE.WebGLShadowMap: THREE.SkinnedMesh with material.skinning set to false:", object3);
           }
         }
-        const useInstancing = object2.isInstancedMesh === true;
+        const useInstancing = object3.isInstancedMesh === true;
         result = getMaterialVariant(useMorphing, useSkinning, useInstancing);
       } else {
         result = customMaterial;
@@ -11369,31 +11369,31 @@
       }
       return result;
     }
-    function renderObject(object2, camera, shadowCamera, light, type) {
-      if (object2.visible === false) return;
-      const visible = object2.layers.test(camera.layers);
-      if (visible && (object2.isMesh || object2.isLine || object2.isPoints)) {
-        if ((object2.castShadow || object2.receiveShadow && type === VSMShadowMap) && (!object2.frustumCulled || _frustum.intersectsObject(object2))) {
-          object2.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse, object2.matrixWorld);
-          const geometry = _objects.update(object2);
-          const material = object2.material;
+    function renderObject(object3, camera, shadowCamera, light, type) {
+      if (object3.visible === false) return;
+      const visible = object3.layers.test(camera.layers);
+      if (visible && (object3.isMesh || object3.isLine || object3.isPoints)) {
+        if ((object3.castShadow || object3.receiveShadow && type === VSMShadowMap) && (!object3.frustumCulled || _frustum.intersectsObject(object3))) {
+          object3.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse, object3.matrixWorld);
+          const geometry = _objects.update(object3);
+          const material = object3.material;
           if (Array.isArray(material)) {
             const groups = geometry.groups;
             for (let k = 0, kl = groups.length; k < kl; k++) {
               const group = groups[k];
               const groupMaterial = material[group.materialIndex];
               if (groupMaterial && groupMaterial.visible) {
-                const depthMaterial = getDepthMaterial(object2, geometry, groupMaterial, light, shadowCamera.near, shadowCamera.far, type);
-                _renderer.renderBufferDirect(shadowCamera, null, geometry, depthMaterial, object2, group);
+                const depthMaterial = getDepthMaterial(object3, geometry, groupMaterial, light, shadowCamera.near, shadowCamera.far, type);
+                _renderer.renderBufferDirect(shadowCamera, null, geometry, depthMaterial, object3, group);
               }
             }
           } else if (material.visible) {
-            const depthMaterial = getDepthMaterial(object2, geometry, material, light, shadowCamera.near, shadowCamera.far, type);
-            _renderer.renderBufferDirect(shadowCamera, null, geometry, depthMaterial, object2, null);
+            const depthMaterial = getDepthMaterial(object3, geometry, material, light, shadowCamera.near, shadowCamera.far, type);
+            _renderer.renderBufferDirect(shadowCamera, null, geometry, depthMaterial, object3, null);
           }
         }
       }
-      const children = object2.children;
+      const children = object3.children;
       for (let i = 0, l = children.length; i < l; i++) {
         renderObject(children[i], camera, shadowCamera, light, type);
       }
@@ -13901,51 +13901,51 @@
         });
       }
     }
-    function renderObjectImmediate(object2, program) {
-      object2.render(function(object3) {
-        _this.renderBufferImmediate(object3, program);
+    function renderObjectImmediate(object3, program) {
+      object3.render(function(object4) {
+        _this.renderBufferImmediate(object4, program);
       });
     }
-    this.renderBufferImmediate = function(object2, program) {
+    this.renderBufferImmediate = function(object3, program) {
       bindingStates.initAttributes();
-      const buffers = properties.get(object2);
-      if (object2.hasPositions && !buffers.position) buffers.position = _gl.createBuffer();
-      if (object2.hasNormals && !buffers.normal) buffers.normal = _gl.createBuffer();
-      if (object2.hasUvs && !buffers.uv) buffers.uv = _gl.createBuffer();
-      if (object2.hasColors && !buffers.color) buffers.color = _gl.createBuffer();
+      const buffers = properties.get(object3);
+      if (object3.hasPositions && !buffers.position) buffers.position = _gl.createBuffer();
+      if (object3.hasNormals && !buffers.normal) buffers.normal = _gl.createBuffer();
+      if (object3.hasUvs && !buffers.uv) buffers.uv = _gl.createBuffer();
+      if (object3.hasColors && !buffers.color) buffers.color = _gl.createBuffer();
       const programAttributes = program.getAttributes();
-      if (object2.hasPositions) {
+      if (object3.hasPositions) {
         _gl.bindBuffer(34962, buffers.position);
-        _gl.bufferData(34962, object2.positionArray, 35048);
+        _gl.bufferData(34962, object3.positionArray, 35048);
         bindingStates.enableAttribute(programAttributes.position);
         _gl.vertexAttribPointer(programAttributes.position, 3, 5126, false, 0, 0);
       }
-      if (object2.hasNormals) {
+      if (object3.hasNormals) {
         _gl.bindBuffer(34962, buffers.normal);
-        _gl.bufferData(34962, object2.normalArray, 35048);
+        _gl.bufferData(34962, object3.normalArray, 35048);
         bindingStates.enableAttribute(programAttributes.normal);
         _gl.vertexAttribPointer(programAttributes.normal, 3, 5126, false, 0, 0);
       }
-      if (object2.hasUvs) {
+      if (object3.hasUvs) {
         _gl.bindBuffer(34962, buffers.uv);
-        _gl.bufferData(34962, object2.uvArray, 35048);
+        _gl.bufferData(34962, object3.uvArray, 35048);
         bindingStates.enableAttribute(programAttributes.uv);
         _gl.vertexAttribPointer(programAttributes.uv, 2, 5126, false, 0, 0);
       }
-      if (object2.hasColors) {
+      if (object3.hasColors) {
         _gl.bindBuffer(34962, buffers.color);
-        _gl.bufferData(34962, object2.colorArray, 35048);
+        _gl.bufferData(34962, object3.colorArray, 35048);
         bindingStates.enableAttribute(programAttributes.color);
         _gl.vertexAttribPointer(programAttributes.color, 3, 5126, false, 0, 0);
       }
       bindingStates.disableUnusedAttributes();
-      _gl.drawArrays(4, 0, object2.count);
-      object2.count = 0;
+      _gl.drawArrays(4, 0, object3.count);
+      object3.count = 0;
     };
-    this.renderBufferDirect = function(camera, scene, geometry, material, object2, group) {
+    this.renderBufferDirect = function(camera, scene, geometry, material, object3, group) {
       if (scene === null) scene = _emptyScene;
-      const frontFaceCW = object2.isMesh && object2.matrixWorld.determinant() < 0;
-      const program = setProgram(camera, scene, material, object2);
+      const frontFaceCW = object3.isMesh && object3.matrixWorld.determinant() < 0;
+      const program = setProgram(camera, scene, material, object3);
       state.setMaterial(material, frontFaceCW);
       let index = geometry.index;
       const position = geometry.attributes.position;
@@ -13960,9 +13960,9 @@
         rangeFactor = 2;
       }
       if (material.morphTargets || material.morphNormals) {
-        morphtargets.update(object2, geometry, material, program);
+        morphtargets.update(object3, geometry, material, program);
       }
-      bindingStates.setup(object2, material, program, geometry, index);
+      bindingStates.setup(object3, material, program, geometry, index);
       let attribute;
       let renderer = bufferRenderer;
       if (index !== null) {
@@ -13979,31 +13979,31 @@
       const drawEnd = Math.min(dataCount, rangeStart + rangeCount, groupStart + groupCount) - 1;
       const drawCount = Math.max(0, drawEnd - drawStart + 1);
       if (drawCount === 0) return;
-      if (object2.isMesh) {
+      if (object3.isMesh) {
         if (material.wireframe === true) {
           state.setLineWidth(material.wireframeLinewidth * getTargetPixelRatio());
           renderer.setMode(1);
         } else {
           renderer.setMode(4);
         }
-      } else if (object2.isLine) {
+      } else if (object3.isLine) {
         let lineWidth = material.linewidth;
         if (lineWidth === void 0) lineWidth = 1;
         state.setLineWidth(lineWidth * getTargetPixelRatio());
-        if (object2.isLineSegments) {
+        if (object3.isLineSegments) {
           renderer.setMode(1);
-        } else if (object2.isLineLoop) {
+        } else if (object3.isLineLoop) {
           renderer.setMode(2);
         } else {
           renderer.setMode(3);
         }
-      } else if (object2.isPoints) {
+      } else if (object3.isPoints) {
         renderer.setMode(0);
-      } else if (object2.isSprite) {
+      } else if (object3.isSprite) {
         renderer.setMode(4);
       }
-      if (object2.isInstancedMesh) {
-        renderer.renderInstances(drawStart, drawCount, object2.count);
+      if (object3.isInstancedMesh) {
+        renderer.renderInstances(drawStart, drawCount, object3.count);
       } else if (geometry.isInstancedBufferGeometry) {
         const instanceCount = Math.min(geometry.instanceCount, geometry._maxInstanceCount);
         renderer.renderInstances(drawStart, drawCount, instanceCount);
@@ -14014,25 +14014,25 @@
     this.compile = function(scene, camera) {
       currentRenderState = renderStates.get(scene);
       currentRenderState.init();
-      scene.traverseVisible(function(object2) {
-        if (object2.isLight && object2.layers.test(camera.layers)) {
-          currentRenderState.pushLight(object2);
-          if (object2.castShadow) {
-            currentRenderState.pushShadow(object2);
+      scene.traverseVisible(function(object3) {
+        if (object3.isLight && object3.layers.test(camera.layers)) {
+          currentRenderState.pushLight(object3);
+          if (object3.castShadow) {
+            currentRenderState.pushShadow(object3);
           }
         }
       });
       currentRenderState.setupLights();
-      scene.traverse(function(object2) {
-        const material = object2.material;
+      scene.traverse(function(object3) {
+        const material = object3.material;
         if (material) {
           if (Array.isArray(material)) {
             for (let i = 0; i < material.length; i++) {
               const material2 = material[i];
-              getProgram(material2, scene, object2);
+              getProgram(material2, scene, object3);
             }
           } else {
-            getProgram(material, scene, object2);
+            getProgram(material, scene, object3);
           }
         }
       });
@@ -14133,64 +14133,64 @@
         currentRenderList = null;
       }
     };
-    function projectObject(object2, camera, groupOrder, sortObjects) {
-      if (object2.visible === false) return;
-      const visible = object2.layers.test(camera.layers);
+    function projectObject(object3, camera, groupOrder, sortObjects) {
+      if (object3.visible === false) return;
+      const visible = object3.layers.test(camera.layers);
       if (visible) {
-        if (object2.isGroup) {
-          groupOrder = object2.renderOrder;
-        } else if (object2.isLOD) {
-          if (object2.autoUpdate === true) object2.update(camera);
-        } else if (object2.isLight) {
-          currentRenderState.pushLight(object2);
-          if (object2.castShadow) {
-            currentRenderState.pushShadow(object2);
+        if (object3.isGroup) {
+          groupOrder = object3.renderOrder;
+        } else if (object3.isLOD) {
+          if (object3.autoUpdate === true) object3.update(camera);
+        } else if (object3.isLight) {
+          currentRenderState.pushLight(object3);
+          if (object3.castShadow) {
+            currentRenderState.pushShadow(object3);
           }
-        } else if (object2.isSprite) {
-          if (!object2.frustumCulled || _frustum.intersectsSprite(object2)) {
+        } else if (object3.isSprite) {
+          if (!object3.frustumCulled || _frustum.intersectsSprite(object3)) {
             if (sortObjects) {
-              _vector3.setFromMatrixPosition(object2.matrixWorld).applyMatrix4(_projScreenMatrix2);
+              _vector3.setFromMatrixPosition(object3.matrixWorld).applyMatrix4(_projScreenMatrix2);
             }
-            const geometry = objects.update(object2);
-            const material = object2.material;
+            const geometry = objects.update(object3);
+            const material = object3.material;
             if (material.visible) {
-              currentRenderList.push(object2, geometry, material, groupOrder, _vector3.z, null);
+              currentRenderList.push(object3, geometry, material, groupOrder, _vector3.z, null);
             }
           }
-        } else if (object2.isImmediateRenderObject) {
+        } else if (object3.isImmediateRenderObject) {
           if (sortObjects) {
-            _vector3.setFromMatrixPosition(object2.matrixWorld).applyMatrix4(_projScreenMatrix2);
+            _vector3.setFromMatrixPosition(object3.matrixWorld).applyMatrix4(_projScreenMatrix2);
           }
-          currentRenderList.push(object2, null, object2.material, groupOrder, _vector3.z, null);
-        } else if (object2.isMesh || object2.isLine || object2.isPoints) {
-          if (object2.isSkinnedMesh) {
-            if (object2.skeleton.frame !== info.render.frame) {
-              object2.skeleton.update();
-              object2.skeleton.frame = info.render.frame;
+          currentRenderList.push(object3, null, object3.material, groupOrder, _vector3.z, null);
+        } else if (object3.isMesh || object3.isLine || object3.isPoints) {
+          if (object3.isSkinnedMesh) {
+            if (object3.skeleton.frame !== info.render.frame) {
+              object3.skeleton.update();
+              object3.skeleton.frame = info.render.frame;
             }
           }
-          if (!object2.frustumCulled || _frustum.intersectsObject(object2)) {
+          if (!object3.frustumCulled || _frustum.intersectsObject(object3)) {
             if (sortObjects) {
-              _vector3.setFromMatrixPosition(object2.matrixWorld).applyMatrix4(_projScreenMatrix2);
+              _vector3.setFromMatrixPosition(object3.matrixWorld).applyMatrix4(_projScreenMatrix2);
             }
-            const geometry = objects.update(object2);
-            const material = object2.material;
+            const geometry = objects.update(object3);
+            const material = object3.material;
             if (Array.isArray(material)) {
               const groups = geometry.groups;
               for (let i = 0, l = groups.length; i < l; i++) {
                 const group = groups[i];
                 const groupMaterial = material[group.materialIndex];
                 if (groupMaterial && groupMaterial.visible) {
-                  currentRenderList.push(object2, geometry, groupMaterial, groupOrder, _vector3.z, group);
+                  currentRenderList.push(object3, geometry, groupMaterial, groupOrder, _vector3.z, group);
                 }
               }
             } else if (material.visible) {
-              currentRenderList.push(object2, geometry, material, groupOrder, _vector3.z, null);
+              currentRenderList.push(object3, geometry, material, groupOrder, _vector3.z, null);
             }
           }
         }
       }
-      const children = object2.children;
+      const children = object3.children;
       for (let i = 0, l = children.length; i < l; i++) {
         projectObject(children[i], camera, groupOrder, sortObjects);
       }
@@ -14199,7 +14199,7 @@
       const overrideMaterial = scene.isScene === true ? scene.overrideMaterial : null;
       for (let i = 0, l = renderList.length; i < l; i++) {
         const renderItem = renderList[i];
-        const object2 = renderItem.object;
+        const object3 = renderItem.object;
         const geometry = renderItem.geometry;
         const material = overrideMaterial === null ? renderItem.material : overrideMaterial;
         const group = renderItem.group;
@@ -14207,38 +14207,38 @@
           const cameras = camera.cameras;
           for (let j = 0, jl = cameras.length; j < jl; j++) {
             const camera2 = cameras[j];
-            if (object2.layers.test(camera2.layers)) {
+            if (object3.layers.test(camera2.layers)) {
               state.viewport(_currentViewport.copy(camera2.viewport));
               currentRenderState.setupLightsView(camera2);
-              renderObject(object2, scene, camera2, geometry, material, group);
+              renderObject(object3, scene, camera2, geometry, material, group);
             }
           }
         } else {
-          renderObject(object2, scene, camera, geometry, material, group);
+          renderObject(object3, scene, camera, geometry, material, group);
         }
       }
     }
-    function renderObject(object2, scene, camera, geometry, material, group) {
-      object2.onBeforeRender(_this, scene, camera, geometry, material, group);
-      object2.modelViewMatrix.multiplyMatrices(camera.matrixWorldInverse, object2.matrixWorld);
-      object2.normalMatrix.getNormalMatrix(object2.modelViewMatrix);
-      if (object2.isImmediateRenderObject) {
-        const program = setProgram(camera, scene, material, object2);
+    function renderObject(object3, scene, camera, geometry, material, group) {
+      object3.onBeforeRender(_this, scene, camera, geometry, material, group);
+      object3.modelViewMatrix.multiplyMatrices(camera.matrixWorldInverse, object3.matrixWorld);
+      object3.normalMatrix.getNormalMatrix(object3.modelViewMatrix);
+      if (object3.isImmediateRenderObject) {
+        const program = setProgram(camera, scene, material, object3);
         state.setMaterial(material);
         bindingStates.reset();
-        renderObjectImmediate(object2, program);
+        renderObjectImmediate(object3, program);
       } else {
-        _this.renderBufferDirect(camera, scene, geometry, material, object2, group);
+        _this.renderBufferDirect(camera, scene, geometry, material, object3, group);
       }
-      object2.onAfterRender(_this, scene, camera, geometry, material, group);
+      object3.onAfterRender(_this, scene, camera, geometry, material, group);
     }
-    function getProgram(material, scene, object2) {
+    function getProgram(material, scene, object3) {
       if (scene.isScene !== true) scene = _emptyScene;
       const materialProperties = properties.get(material);
       const lights = currentRenderState.state.lights;
       const shadowsArray = currentRenderState.state.shadowsArray;
       const lightsStateVersion = lights.state.version;
-      const parameters2 = programCache.getParameters(material, lights.state, shadowsArray, scene, object2);
+      const parameters2 = programCache.getParameters(material, lights.state, shadowsArray, scene, object3);
       const programCacheKey = programCache.getProgramCacheKey(parameters2);
       let programs = materialProperties.programs;
       materialProperties.environment = material.isMeshStandardMaterial ? scene.environment : null;
@@ -14304,14 +14304,14 @@
       materialProperties.numIntersection = parameters2.numClipIntersection;
       materialProperties.vertexAlphas = parameters2.vertexAlphas;
     }
-    function setProgram(camera, scene, material, object2) {
+    function setProgram(camera, scene, material, object3) {
       if (scene.isScene !== true) scene = _emptyScene;
       textures.resetTextureUnits();
       const fog = scene.fog;
       const environment = material.isMeshStandardMaterial ? scene.environment : null;
       const encoding = _currentRenderTarget === null ? _this.outputEncoding : _currentRenderTarget.texture.encoding;
       const envMap = cubemaps.get(material.envMap || environment);
-      const vertexAlphas = material.vertexColors === true && object2.geometry && object2.geometry.attributes.color && object2.geometry.attributes.color.itemSize === 4;
+      const vertexAlphas = material.vertexColors === true && object3.geometry && object3.geometry.attributes.color && object3.geometry.attributes.color.itemSize === 4;
       const materialProperties = properties.get(material);
       const lights = currentRenderState.state.lights;
       if (_clippingEnabled === true) {
@@ -14326,9 +14326,9 @@
           needsProgramChange = true;
         } else if (materialProperties.outputEncoding !== encoding) {
           needsProgramChange = true;
-        } else if (object2.isInstancedMesh && materialProperties.instancing === false) {
+        } else if (object3.isInstancedMesh && materialProperties.instancing === false) {
           needsProgramChange = true;
-        } else if (!object2.isInstancedMesh && materialProperties.instancing === true) {
+        } else if (!object3.isInstancedMesh && materialProperties.instancing === true) {
           needsProgramChange = true;
         } else if (materialProperties.envMap !== envMap) {
           needsProgramChange = true;
@@ -14345,7 +14345,7 @@
       }
       let program = materialProperties.currentProgram;
       if (needsProgramChange === true) {
-        program = getProgram(material, scene, object2);
+        program = getProgram(material, scene, object3);
       }
       let refreshProgram = false;
       let refreshMaterial = false;
@@ -14391,9 +14391,9 @@
         }
       }
       if (material.skinning) {
-        p_uniforms.setOptional(_gl, object2, "bindMatrix");
-        p_uniforms.setOptional(_gl, object2, "bindMatrixInverse");
-        const skeleton = object2.skeleton;
+        p_uniforms.setOptional(_gl, object3, "bindMatrix");
+        p_uniforms.setOptional(_gl, object3, "bindMatrixInverse");
+        const skeleton = object3.skeleton;
         if (skeleton) {
           const bones = skeleton.bones;
           if (capabilities.floatVertexTextures) {
@@ -14415,9 +14415,9 @@
           }
         }
       }
-      if (refreshMaterial || materialProperties.receiveShadow !== object2.receiveShadow) {
-        materialProperties.receiveShadow = object2.receiveShadow;
-        p_uniforms.setValue(_gl, "receiveShadow", object2.receiveShadow);
+      if (refreshMaterial || materialProperties.receiveShadow !== object3.receiveShadow) {
+        materialProperties.receiveShadow = object3.receiveShadow;
+        p_uniforms.setValue(_gl, "receiveShadow", object3.receiveShadow);
       }
       if (refreshMaterial) {
         p_uniforms.setValue(_gl, "toneMappingExposure", _this.toneMappingExposure);
@@ -14435,11 +14435,11 @@
         material.uniformsNeedUpdate = false;
       }
       if (material.isSpriteMaterial) {
-        p_uniforms.setValue(_gl, "center", object2.center);
+        p_uniforms.setValue(_gl, "center", object3.center);
       }
-      p_uniforms.setValue(_gl, "modelViewMatrix", object2.modelViewMatrix);
-      p_uniforms.setValue(_gl, "normalMatrix", object2.normalMatrix);
-      p_uniforms.setValue(_gl, "modelMatrix", object2.matrixWorld);
+      p_uniforms.setValue(_gl, "modelViewMatrix", object3.modelViewMatrix);
+      p_uniforms.setValue(_gl, "normalMatrix", object3.normalMatrix);
+      p_uniforms.setValue(_gl, "modelMatrix", object3.matrixWorld);
       return program;
     }
     function markUniformsLightsNeedsUpdate(uniforms, value2) {
@@ -15539,7 +15539,7 @@
     }
   };
   Points.prototype.isPoints = true;
-  function testPoint(point, index, localThresholdSq, matrixWorld, raycaster, intersects3, object2) {
+  function testPoint(point, index, localThresholdSq, matrixWorld, raycaster, intersects3, object3) {
     const rayPointDistanceSq = _ray.distanceSqToPoint(point);
     if (rayPointDistanceSq < localThresholdSq) {
       const intersectPoint = new Vector3();
@@ -15553,7 +15553,7 @@
         point: intersectPoint,
         index,
         face: null,
-        object: object2
+        object: object3
       });
     }
   }
@@ -15623,6 +15623,85 @@
   var _v1$1 = new Vector3();
   var _normal = new Vector3();
   var _triangle = new Triangle();
+  var EdgesGeometry = class extends BufferGeometry {
+    constructor(geometry, thresholdAngle) {
+      super();
+      this.type = "EdgesGeometry";
+      this.parameters = {
+        thresholdAngle
+      };
+      thresholdAngle = thresholdAngle !== void 0 ? thresholdAngle : 1;
+      if (geometry.isGeometry === true) {
+        console.error("THREE.EdgesGeometry no longer supports THREE.Geometry. Use THREE.BufferGeometry instead.");
+        return;
+      }
+      const precisionPoints = 4;
+      const precision = Math.pow(10, precisionPoints);
+      const thresholdDot = Math.cos(DEG2RAD * thresholdAngle);
+      const indexAttr = geometry.getIndex();
+      const positionAttr = geometry.getAttribute("position");
+      const indexCount = indexAttr ? indexAttr.count : positionAttr.count;
+      const indexArr = [0, 0, 0];
+      const vertKeys = ["a", "b", "c"];
+      const hashes = new Array(3);
+      const edgeData = {};
+      const vertices = [];
+      for (let i = 0; i < indexCount; i += 3) {
+        if (indexAttr) {
+          indexArr[0] = indexAttr.getX(i);
+          indexArr[1] = indexAttr.getX(i + 1);
+          indexArr[2] = indexAttr.getX(i + 2);
+        } else {
+          indexArr[0] = i;
+          indexArr[1] = i + 1;
+          indexArr[2] = i + 2;
+        }
+        const { a, b, c } = _triangle;
+        a.fromBufferAttribute(positionAttr, indexArr[0]);
+        b.fromBufferAttribute(positionAttr, indexArr[1]);
+        c.fromBufferAttribute(positionAttr, indexArr[2]);
+        _triangle.getNormal(_normal);
+        hashes[0] = `${Math.round(a.x * precision)},${Math.round(a.y * precision)},${Math.round(a.z * precision)}`;
+        hashes[1] = `${Math.round(b.x * precision)},${Math.round(b.y * precision)},${Math.round(b.z * precision)}`;
+        hashes[2] = `${Math.round(c.x * precision)},${Math.round(c.y * precision)},${Math.round(c.z * precision)}`;
+        if (hashes[0] === hashes[1] || hashes[1] === hashes[2] || hashes[2] === hashes[0]) {
+          continue;
+        }
+        for (let j = 0; j < 3; j++) {
+          const jNext = (j + 1) % 3;
+          const vecHash0 = hashes[j];
+          const vecHash1 = hashes[jNext];
+          const v0 = _triangle[vertKeys[j]];
+          const v1 = _triangle[vertKeys[jNext]];
+          const hash = `${vecHash0}_${vecHash1}`;
+          const reverseHash = `${vecHash1}_${vecHash0}`;
+          if (reverseHash in edgeData && edgeData[reverseHash]) {
+            if (_normal.dot(edgeData[reverseHash].normal) <= thresholdDot) {
+              vertices.push(v0.x, v0.y, v0.z);
+              vertices.push(v1.x, v1.y, v1.z);
+            }
+            edgeData[reverseHash] = null;
+          } else if (!(hash in edgeData)) {
+            edgeData[hash] = {
+              index0: indexArr[j],
+              index1: indexArr[jNext],
+              normal: _normal.clone()
+            };
+          }
+        }
+      }
+      for (const key in edgeData) {
+        if (edgeData[key]) {
+          const { index0, index1 } = edgeData[key];
+          _v0.fromBufferAttribute(positionAttr, index0);
+          _v1$1.fromBufferAttribute(positionAttr, index1);
+          vertices.push(_v0.x, _v0.y, _v0.z);
+          vertices.push(_v1$1.x, _v1$1.y, _v1$1.z);
+        }
+      }
+      this.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    }
+  };
   var Earcut = {
     triangulate: function(data, holeIndices, dim) {
       dim = dim || 2;
@@ -16993,8 +17072,8 @@
       }
       return Array.prototype.slice.call(array);
     },
-    isTypedArray: function(object2) {
-      return ArrayBuffer.isView(object2) && !(object2 instanceof DataView);
+    isTypedArray: function(object3) {
+      return ArrayBuffer.isView(object3) && !(object3 instanceof DataView);
     },
     // returns an array by which times and values can be sorted
     getKeyframeOrder: function(times) {
@@ -19434,14 +19513,14 @@
       return new this.constructor().copy(this);
     }
     toJSON() {
-      const object2 = {};
-      if (this.bias !== 0) object2.bias = this.bias;
-      if (this.normalBias !== 0) object2.normalBias = this.normalBias;
-      if (this.radius !== 1) object2.radius = this.radius;
-      if (this.mapSize.x !== 512 || this.mapSize.y !== 512) object2.mapSize = this.mapSize.toArray();
-      object2.camera = this.camera.toJSON(false).object;
-      delete object2.camera.matrix;
-      return object2;
+      const object3 = {};
+      if (this.bias !== 0) object3.bias = this.bias;
+      if (this.normalBias !== 0) object3.normalBias = this.normalBias;
+      if (this.radius !== 1) object3.radius = this.radius;
+      if (this.mapSize.x !== 512 || this.mapSize.y !== 512) object3.mapSize = this.mapSize.toArray();
+      object3.camera = this.camera.toJSON(false).object;
+      delete object3.camera.matrix;
+      return object3;
     }
   };
   var SpotLightShadow = class extends LightShadow {
@@ -21077,14 +21156,14 @@
       const objects = this._objects, indicesByUUID = this._indicesByUUID, paths = this._paths, parsedPaths = this._parsedPaths, bindings = this._bindings, nBindings = bindings.length;
       let knownObject = void 0, nObjects = objects.length, nCachedObjects = this.nCachedObjects_;
       for (let i = 0, n = arguments.length; i !== n; ++i) {
-        const object2 = arguments[i], uuid = object2.uuid;
+        const object3 = arguments[i], uuid = object3.uuid;
         let index = indicesByUUID[uuid];
         if (index === void 0) {
           index = nObjects++;
           indicesByUUID[uuid] = index;
-          objects.push(object2);
+          objects.push(object3);
           for (let j = 0, m = nBindings; j !== m; ++j) {
-            bindings[j].push(new PropertyBinding(object2, paths[j], parsedPaths[j]));
+            bindings[j].push(new PropertyBinding(object3, paths[j], parsedPaths[j]));
           }
         } else if (index < nCachedObjects) {
           knownObject = objects[index];
@@ -21092,13 +21171,13 @@
           indicesByUUID[lastCachedObject.uuid] = index;
           objects[index] = lastCachedObject;
           indicesByUUID[uuid] = firstActiveIndex;
-          objects[firstActiveIndex] = object2;
+          objects[firstActiveIndex] = object3;
           for (let j = 0, m = nBindings; j !== m; ++j) {
             const bindingsForPath = bindings[j], lastCached = bindingsForPath[firstActiveIndex];
             let binding = bindingsForPath[index];
             bindingsForPath[index] = lastCached;
             if (binding === void 0) {
-              binding = new PropertyBinding(object2, paths[j], parsedPaths[j]);
+              binding = new PropertyBinding(object3, paths[j], parsedPaths[j]);
             }
             bindingsForPath[firstActiveIndex] = binding;
           }
@@ -21112,13 +21191,13 @@
       const objects = this._objects, indicesByUUID = this._indicesByUUID, bindings = this._bindings, nBindings = bindings.length;
       let nCachedObjects = this.nCachedObjects_;
       for (let i = 0, n = arguments.length; i !== n; ++i) {
-        const object2 = arguments[i], uuid = object2.uuid, index = indicesByUUID[uuid];
+        const object3 = arguments[i], uuid = object3.uuid, index = indicesByUUID[uuid];
         if (index !== void 0 && index >= nCachedObjects) {
           const lastCachedIndex = nCachedObjects++, firstActiveObject = objects[lastCachedIndex];
           indicesByUUID[firstActiveObject.uuid] = index;
           objects[index] = firstActiveObject;
           indicesByUUID[uuid] = lastCachedIndex;
-          objects[lastCachedIndex] = object2;
+          objects[lastCachedIndex] = object3;
           for (let j = 0, m = nBindings; j !== m; ++j) {
             const bindingsForPath = bindings[j], firstActive = bindingsForPath[lastCachedIndex], binding = bindingsForPath[index];
             bindingsForPath[index] = firstActive;
@@ -21133,7 +21212,7 @@
       const objects = this._objects, indicesByUUID = this._indicesByUUID, bindings = this._bindings, nBindings = bindings.length;
       let nCachedObjects = this.nCachedObjects_, nObjects = objects.length;
       for (let i = 0, n = arguments.length; i !== n; ++i) {
-        const object2 = arguments[i], uuid = object2.uuid, index = indicesByUUID[uuid];
+        const object3 = arguments[i], uuid = object3.uuid, index = indicesByUUID[uuid];
         if (index !== void 0) {
           delete indicesByUUID[uuid];
           if (index < nCachedObjects) {
@@ -21179,8 +21258,8 @@
       parsedPaths.push(parsedPath);
       bindings.push(bindingsForPath);
       for (let i = nCachedObjects, n = objects.length; i !== n; ++i) {
-        const object2 = objects[i];
-        bindingsForPath[i] = new PropertyBinding(object2, path, parsedPath);
+        const object3 = objects[i];
+        bindingsForPath[i] = new PropertyBinding(object3, path, parsedPath);
       }
       return bindingsForPath;
     }
@@ -22015,8 +22094,8 @@
         console.error("THREE.Raycaster: Unsupported camera type: " + camera.type);
       }
     }
-    intersectObject(object2, recursive = false, intersects3 = []) {
-      intersectObject(object2, this, intersects3, recursive);
+    intersectObject(object3, recursive = false, intersects3 = []) {
+      intersectObject(object3, this, intersects3, recursive);
       intersects3.sort(ascSort);
       return intersects3;
     }
@@ -22031,12 +22110,12 @@
   function ascSort(a, b) {
     return a.distance - b.distance;
   }
-  function intersectObject(object2, raycaster, intersects3, recursive) {
-    if (object2.layers.test(raycaster.layers)) {
-      object2.raycast(raycaster, intersects3);
+  function intersectObject(object3, raycaster, intersects3, recursive) {
+    if (object3.layers.test(raycaster.layers)) {
+      object3.raycast(raycaster, intersects3);
     }
     if (recursive === true) {
-      const children = object2.children;
+      const children = object3.children;
       for (let i = 0, l = children.length; i < l; i++) {
         intersectObject(children[i], raycaster, intersects3, true);
       }
@@ -22301,8 +22380,8 @@
   var _boneMatrix = /* @__PURE__ */ new Matrix4();
   var _matrixWorldInv = /* @__PURE__ */ new Matrix4();
   var SkeletonHelper = class extends LineSegments {
-    constructor(object2) {
-      const bones = getBoneList(object2);
+    constructor(object3) {
+      const bones = getBoneList(object3);
       const geometry = new BufferGeometry();
       const vertices = [];
       const colors = [];
@@ -22323,9 +22402,9 @@
       super(geometry, material);
       this.type = "SkeletonHelper";
       this.isSkeletonHelper = true;
-      this.root = object2;
+      this.root = object3;
       this.bones = bones;
-      this.matrix = object2.matrixWorld;
+      this.matrix = object3.matrixWorld;
       this.matrixAutoUpdate = false;
     }
     updateMatrixWorld(force) {
@@ -22349,13 +22428,13 @@
       super.updateMatrixWorld(force);
     }
   };
-  function getBoneList(object2) {
+  function getBoneList(object3) {
     const boneList = [];
-    if (object2 && object2.isBone) {
-      boneList.push(object2);
+    if (object3 && object3.isBone) {
+      boneList.push(object3);
     }
-    for (let i = 0; i < object2.children.length; i++) {
-      boneList.push.apply(boneList, getBoneList(object2.children[i]));
+    for (let i = 0; i < object3.children.length; i++) {
+      boneList.push.apply(boneList, getBoneList(object3.children[i]));
     }
     return boneList;
   }
@@ -23427,11 +23506,11 @@
   var _startEvent = { type: "start" };
   var _endEvent = { type: "end" };
   var OrbitControls = class extends EventDispatcher {
-    constructor(object2, domElement) {
+    constructor(object3, domElement) {
       super();
       if (domElement === void 0) console.warn('THREE.OrbitControls: The second parameter "domElement" is now mandatory.');
       if (domElement === document) console.error('THREE.OrbitControls: "document" should not be used as the target "domElement". Please use "renderer.domElement" instead.');
-      this.object = object2;
+      this.object = object3;
       this.domElement = domElement;
       this.enabled = true;
       this.target = new Vector3();
@@ -23488,7 +23567,7 @@
       };
       this.update = (function() {
         const offset = new Vector3();
-        const quat = new Quaternion().setFromUnitVectors(object2.up, new Vector3(0, 1, 0));
+        const quat = new Quaternion().setFromUnitVectors(object3.up, new Vector3(0, 1, 0));
         const quatInverse = quat.clone().invert();
         const lastPosition = new Vector3();
         const lastQuaternion = new Quaternion();
@@ -24759,34 +24838,11 @@
 
   // src/camera-view.ts
   function worldUnitsPerPixel(camera, height, distance) {
-    return camera instanceof OrthographicCamera ? (camera.top - camera.bottom) / (camera.zoom * Math.max(1, height)) : 2 * Math.tan(MathUtils.degToRad(camera.fov / 2)) * Math.max(0.01, distance) / (camera.zoom * Math.max(1, height));
+    return 2 * Math.tan(MathUtils.degToRad(camera.fov / 2)) * Math.max(0.01, distance) / (camera.zoom * Math.max(1, height));
   }
   function resizeMapCamera(camera, aspect2) {
-    if (camera instanceof PerspectiveCamera) camera.aspect = aspect2;
-    else {
-      const half = (camera.top - camera.bottom) / 2;
-      camera.left = -half * aspect2;
-      camera.right = half * aspect2;
-    }
+    camera.aspect = aspect2;
     camera.updateProjectionMatrix();
-  }
-  function changeProjection(current, target, projection, aspect2) {
-    const distance = Math.max(0.5, current.position.distanceTo(target));
-    const span = worldUnitsPerPixel(current, 1, distance);
-    const camera = projection === "orthographic" ? new OrthographicCamera(
-      -span * aspect2 / 2,
-      span * aspect2 / 2,
-      span / 2,
-      -span / 2,
-      current.near,
-      current.far
-    ) : new PerspectiveCamera(42, aspect2, current.near, current.far);
-    const nextDistance = camera instanceof PerspectiveCamera ? span / (2 * Math.tan(MathUtils.degToRad(camera.fov / 2))) : distance;
-    camera.position.copy(target).addScaledVector(current.getWorldDirection(new Vector3()), -nextDistance);
-    camera.quaternion.copy(current.quaternion);
-    camera.up.copy(current.up);
-    camera.updateMatrixWorld();
-    return camera;
   }
   function fitMapCamera(camera, bounds2, aspect2) {
     const center = bounds2.getCenter(new Vector3());
@@ -24796,21 +24852,14 @@
       for (const y of [bounds2.min.y, bounds2.max.y])
         for (const z of [bounds2.min.z, bounds2.max.z])
           corners.push(new Vector3(x, y, z).sub(center).applyQuaternion(inverse));
-    if (camera instanceof OrthographicCamera) {
-      const half = Math.max(...corners.map((p) => Math.max(Math.abs(p.y), Math.abs(p.x) / aspect2))) * 1.02;
-      camera.top = half;
-      camera.bottom = -half;
-      camera.zoom = 1;
-    } else {
-      const tangent = Math.tan(MathUtils.degToRad(camera.fov / 2));
-      const distance = Math.max(
-        ...corners.map(
-          (p) => p.z + Math.max(Math.abs(p.y), Math.abs(p.x) / aspect2) * 1.02 / tangent
-        )
-      );
-      camera.zoom = 1;
-      camera.position.copy(center).addScaledVector(camera.getWorldDirection(new Vector3()), -distance);
-    }
+    const tangent = Math.tan(MathUtils.degToRad(camera.fov / 2));
+    const distance = Math.max(
+      ...corners.map(
+        (p) => p.z + Math.max(Math.abs(p.y), Math.abs(p.x) / aspect2) * 1.02 / tangent
+      )
+    );
+    camera.zoom = 1;
+    camera.position.copy(center).addScaledVector(camera.getWorldDirection(new Vector3()), -distance);
     resizeMapCamera(camera, aspect2);
     camera.updateMatrixWorld();
   }
@@ -24845,19 +24894,24 @@
   }
 
   // src/cube-seams.ts
-  function extractCubeSurface(geometry, tile, centerX, centerY) {
+  function extractCubeSurface(geometry, tile, centerX, centerY, spatial = false) {
     const b = tile.bounds;
     const x0 = Math.fround((b.minX - centerX) / 100), x1 = Math.fround((b.maxX - centerX) / 100);
     const z0 = Math.fround((b.minY - centerY) / 100), z1 = Math.fround((b.maxY - centerY) / 100);
+    const y0 = Math.fround(b.minZ / 100), y1 = Math.fround(b.maxZ / 100);
     const edges = [
-      { axis: 0, plane: x0, side: -1, start: z0, end: z1, rectangles: [] },
-      { axis: 0, plane: x1, side: 1, start: z0, end: z1, rectangles: [] },
-      { axis: 2, plane: z0, side: -1, start: x0, end: x1, rectangles: [] },
-      { axis: 2, plane: z1, side: 1, start: x0, end: x1, rectangles: [] }
+      { axis: 0, plane: x0, side: -1, start: z0, end: z1, low: y0, high: y1, rectangles: [] },
+      { axis: 0, plane: x1, side: 1, start: z0, end: z1, low: y0, high: y1, rectangles: [] },
+      { axis: 2, plane: z0, side: -1, start: x0, end: x1, low: y0, high: y1, rectangles: [] },
+      { axis: 2, plane: z1, side: 1, start: x0, end: x1, low: y0, high: y1, rectangles: [] }
     ];
+    if (spatial) edges.push(
+      { axis: 1, plane: y0, side: -1, start: x0, end: x1, low: z0, high: z1, rectangles: [] },
+      { axis: 1, plane: y1, side: 1, start: x0, end: x1, low: z0, high: z1, rectangles: [] }
+    );
     const positions = geometry.getAttribute("position"), index = geometry.getIndex();
     if (!index) throw new Error("Cube surface requires indexed geometry.");
-    const coordinate = (vertex, axis) => axis === 0 ? positions.getX(vertex) : positions.getZ(vertex);
+    const coordinate = (vertex, axis) => axis === 0 ? positions.getX(vertex) : axis === 1 ? positions.getY(vertex) : positions.getZ(vertex);
     const kept = new Uint32Array(index.count);
     const groups = [];
     const seen = edges.map(() => /* @__PURE__ */ new Map());
@@ -24866,26 +24920,28 @@
       const start = cursor;
       for (let i = group.start; i < group.start + group.count; i += 3) {
         const vertices = [index.getX(i), index.getX(i + 1), index.getX(i + 2)];
-        const edgeIndex = group.materialIndex === 0 || group.materialIndex === 4 ? edges.findIndex((edge2) => vertices.every((v) => coordinate(v, edge2.axis) === edge2.plane)) : -1;
+        const edgeIndex = spatial || group.materialIndex === 0 || group.materialIndex === 4 ? edges.findIndex((edge2) => vertices.every((v) => coordinate(v, edge2.axis) === edge2.plane)) : -1;
         if (edgeIndex < 0) {
+          if (group.materialIndex === 5)
+            throw new Error("Ignored partition masks must lie on spatial chunk boundaries.");
           kept.set(vertices, cursor);
           cursor += 3;
           continue;
         }
-        const edge = edges[edgeIndex], along = edge.axis === 0 ? 2 : 0;
+        const edge = edges[edgeIndex], along = edge.axis === 0 ? 2 : 0, vertical = edge.axis === 1 ? 2 : 1;
         const rectangle = {
           start: Math.min(...vertices.map((v) => coordinate(v, along))),
           end: Math.max(...vertices.map((v) => coordinate(v, along))),
-          low: Math.min(...vertices.map((v) => positions.getY(v))),
-          high: Math.max(...vertices.map((v) => positions.getY(v)))
+          low: Math.min(...vertices.map((v) => coordinate(v, vertical))),
+          high: Math.max(...vertices.map((v) => coordinate(v, vertical)))
         };
         const key = `${rectangle.start},${rectangle.end},${rectangle.low},${rectangle.high}`;
         let mask = 0;
         for (const vertex of vertices) {
-          const horizontal = coordinate(vertex, along), vertical = positions.getY(vertex);
-          if (horizontal !== rectangle.start && horizontal !== rectangle.end || vertical !== rectangle.low && vertical !== rectangle.high)
+          const horizontal = coordinate(vertex, along), height = coordinate(vertex, vertical);
+          if (horizontal !== rectangle.start && horizontal !== rectangle.end || height !== rectangle.low && height !== rectangle.high)
             throw new Error("Cube partition cap is not a rectangular triangle pair.");
-          mask |= 1 << Number(horizontal === rectangle.end) + 2 * Number(vertical === rectangle.high);
+          mask |= 1 << Number(horizontal === rectangle.end) + 2 * Number(height === rectangle.high);
         }
         const previous = seen[edgeIndex].get(key);
         if (previous !== void 0) {
@@ -24894,7 +24950,8 @@
           seen[edgeIndex].set(key, 15);
         } else {
           seen[edgeIndex].set(key, mask);
-          edge.rectangles.push(rectangle);
+          if (group.materialIndex === 5) (edge.ignored ?? (edge.ignored = [])).push(rectangle);
+          else edge.rectangles.push(rectangle);
         }
       }
       if (seen.some((edge) => [...edge.values()].some((mask) => mask !== 15)))
@@ -24904,7 +24961,7 @@
     geometry.setIndex(new BufferAttribute(kept.slice(0, cursor), 1));
     geometry.clearGroups();
     for (const group of groups) geometry.addGroup(group.start, group.count, group.materialIndex);
-    return { edges };
+    return { edges, spatial };
   }
   function subtract(rectangle, cutter) {
     const start = Math.max(rectangle.start, cutter.start), end = Math.min(rectangle.end, cutter.end);
@@ -24929,12 +24986,21 @@
     return surfaces.map((surface) => {
       const faces = [];
       for (const edge of surface.edges) {
-        const neighbors = planes.get(`${edge.axis}:${edge.plane}`).filter((other) => other.side !== edge.side && other.start < edge.end && other.end > edge.start);
-        for (const rectangle of edge.rectangles)
+        const neighbors = planes.get(`${edge.axis}:${edge.plane}`).filter((other) => other.side !== edge.side && other.start < edge.end && other.end > edge.start && other.low < edge.high && other.high > edge.low);
+        for (const rectangle of edge.rectangles) {
+          if (surface.spatial) {
+            let pieces = [rectangle];
+            for (const neighbor of neighbors)
+              for (const cutter of [...neighbor.rectangles, ...neighbor.ignored ?? []])
+                pieces = pieces.flatMap((piece) => subtract(piece, cutter));
+            for (const piece of pieces) faces.push({ edge, rectangle: piece });
+            continue;
+          }
           for (const neighbor of neighbors) {
             const start = Math.max(rectangle.start, neighbor.start), end = Math.min(rectangle.end, neighbor.end);
-            if (start >= end) continue;
-            let pieces = [{ ...rectangle, start, end }];
+            const low = Math.max(rectangle.low, neighbor.low), high = Math.min(rectangle.high, neighbor.high);
+            if (start >= end || low >= high) continue;
+            let pieces = [{ start, end, low, high }];
             for (const cutter of neighbor.rectangles) {
               if (cutter.start >= end || cutter.end <= start || cutter.low >= rectangle.high || cutter.high <= rectangle.low) continue;
               pieces = pieces.flatMap((piece) => subtract(piece, cutter));
@@ -24942,6 +25008,7 @@
             }
             for (const piece of pieces) faces.push({ edge, rectangle: piece });
           }
+        }
       }
       return { surface, faces };
     });
@@ -24955,25 +25022,97 @@
       const corners = [[r.start, r.low], [r.end, r.low], [r.end, r.high], [r.start, r.high]];
       for (let j = 0; j < corners.length; j++) {
         const [along, height] = corners[j], vertex = i * 4 + j;
-        const x = edge.axis === 0 ? edge.plane : along, z = edge.axis === 2 ? edge.plane : along;
-        positions.set([x, height, z], vertex * 3);
+        const x = edge.axis === 0 ? edge.plane : along;
+        const y = edge.axis === 1 ? edge.plane : height;
+        const z = edge.axis === 2 ? edge.plane : edge.axis === 1 ? height : along;
+        positions.set([x, y, z], vertex * 3);
         uv.set([
           (x * 100 + centerX - bounds2.minX) / (bounds2.maxX - bounds2.minX),
           1 - (z * 100 + centerY - bounds2.minY) / (bounds2.maxY - bounds2.minY)
         ], vertex * 2);
       }
-      const a = i * 4, reverse = edge.axis === 0 ? edge.side > 0 : edge.side < 0;
+      const a = i * 4, reverse = edge.axis === 2 ? edge.side < 0 : edge.side > 0;
       indices.set(reverse ? [a, a + 2, a + 1, a, a + 3, a + 2] : [a, a + 1, a + 2, a, a + 2, a + 3], i * 6);
     }
     const geometry = new BufferGeometry();
     geometry.setAttribute("position", new BufferAttribute(positions, 3));
     geometry.setAttribute("uv", new BufferAttribute(uv, 2));
     geometry.setIndex(new BufferAttribute(indices, 1));
-    geometry.addGroup(0, indices.length, 4);
+    for (let i = 0; i < plan.faces.length; i++) {
+      const edge = plan.faces[i].edge;
+      const material = edge.axis === 1 ? edge.side > 0 ? 1 : 0 : 4;
+      const previous = geometry.groups[geometry.groups.length - 1];
+      if (previous?.materialIndex === material) previous.count += 6;
+      else geometry.addGroup(i * 6, 6, material);
+    }
     geometry.computeVertexNormals();
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
     return geometry;
+  }
+
+  // src/terrain-budget.ts
+  var MAX_TERRAIN_TRIANGLES = 4e6;
+  var TerrainBudget = class {
+    constructor(baseTriangles) {
+      this.triangles = 1e6;
+      this.samples = [];
+      this.minimum = Math.max(25e4, baseTriangles);
+      this.triangles = Math.max(this.triangles, this.minimum);
+    }
+    sample(now, needsDetail) {
+      const elapsed = this.previous === void 0 ? 0 : now - this.previous;
+      this.previous = now;
+      if (elapsed <= 0 || elapsed > 250) {
+        this.samples = [];
+        return;
+      }
+      this.samples.push(elapsed);
+      if (this.samples.length < 120) return;
+      const sorted = this.samples.sort((a, b) => a - b);
+      const median = sorted[60], slow = sorted[108];
+      this.samples = [];
+      if (median > 23 || slow > 40)
+        this.triangles = Math.max(this.minimum, Math.floor(this.triangles * 0.8));
+      else if (needsDetail && median < 19 && slow < 25)
+        this.triangles = Math.min(MAX_TERRAIN_TRIANGLES, Math.floor(this.triangles * 1.2));
+    }
+  };
+
+  // src/world-mesh-fetch.ts
+  async function worldMeshBytes(request, url, lod, signal) {
+    const ranged = lod.byteOffset !== void 0 && lod.byteLength !== void 0;
+    const end = ranged ? lod.byteOffset + lod.byteLength - 1 : 0;
+    const response = await request(url, {
+      signal,
+      ...ranged ? { headers: { Range: `bytes=${lod.byteOffset}-${end}` } } : {}
+    });
+    if (!ranged)
+      return boundedResponse(response, worldBinaryBytes(lod), signal, "Progressive patch");
+    const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get("Content-Range") ?? "");
+    if (response.status !== 206 || !match || Number(match[1]) !== lod.byteOffset || Number(match[2]) !== end || !Number.isSafeInteger(Number(match[3])) || Number(match[3]) <= end || response.headers.has("Content-Encoding")) {
+      await response.body?.cancel();
+      throw new Error("Terrain bundle requires an exact, unencoded HTTP byte-range response.");
+    }
+    const compressed = await boundedResponse(
+      response,
+      lod.byteLength,
+      signal,
+      "Terrain bundle range"
+    );
+    if (compressed.byteLength !== lod.byteLength)
+      throw new Error("Truncated terrain bundle range.");
+    if (typeof DecompressionStream === "undefined")
+      throw new Error("Terrain bundles require gzip stream decompression support.");
+    const decoded = await boundedResponse(
+      new Response(new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip"))),
+      worldBinaryBytes(lod),
+      signal,
+      "Terrain bundle chunk"
+    );
+    if (decoded.byteLength !== worldBinaryBytes(lod))
+      throw new Error("Terrain chunk decoded length does not match its descriptor.");
+    return decoded;
   }
 
   // src/progressive-world.ts
@@ -25051,7 +25190,9 @@ vec3 worldMorphPosition() {
       this.disposed = false;
       this.selectionMs = 0;
       this.cubeSizes = { near: 1, far: 4 };
+      this.budgetLimited = false;
       this.nodes = new Map(manifest.tiles.map((node) => [node.id, node]));
+      this.budget = new TerrainBudget(manifest.roots.reduce((sum, id) => sum + this.nodes.get(id).lods[0].triangles, 0));
       for (const node of manifest.tiles)
         for (const child of node.children ?? []) this.parents.set(child, node);
     }
@@ -25063,6 +25204,11 @@ vec3 worldMorphPosition() {
     }
     get meshes() {
       return [...this.active.values()].flatMap((p) => p.seam ? [p.mesh, p.seam] : [p.mesh]);
+    }
+    cubeSizeCm(object3) {
+      for (const patch of this.active.values())
+        if (patch.mesh === object3) return patch.node.lods[0].cubeSizeCm;
+      return void 0;
     }
     get allMeshes() {
       return [...this.meshes, ...this.transaction?.loaded.values() ?? []];
@@ -25097,10 +25243,11 @@ vec3 worldMorphPosition() {
       this.emit();
     }
     animate() {
+      if (this.cubes && this.initialized) this.budget.sample(this.time.value * 1e3, this.budgetLimited);
       const tx = this.transaction;
       if (tx?.finishAt !== void 0 && this.time.value >= tx.finishAt) this.commit(tx, false);
     }
-    update(camera, height, exaggeration, focus = new Vector3()) {
+    update(camera, height, exaggeration) {
       if (!this.initialized || this.transaction || this.disposed) return;
       const started = performance.now();
       camera.updateMatrixWorld();
@@ -25111,6 +25258,7 @@ vec3 worldMorphPosition() {
         )
       );
       const cubes = this.cubes;
+      const focusRay = new Ray(camera.position, camera.getWorldDirection(new Vector3()));
       const error = (node) => {
         const b = node.bounds;
         const box = new Box3(
@@ -25127,9 +25275,9 @@ vec3 worldMorphPosition() {
         );
         const visible = frustum.intersectsBox(box);
         if (cubes && visible) {
-          const distance = camera instanceof OrthographicCamera ? Math.hypot(box.distanceToPoint(focus), worldUnitsPerPixel(camera, height, 1) * height / 2) : box.distanceToPoint(camera.position);
+          const distance = box.distanceToPoint(camera.position);
           const target = this.manifest.cellSizeCm * (distance < 750 ? this.cubeSizes.near : this.cubeSizes.far);
-          return node.lods[0].cubeSizeCm > target ? 3 + node.lods[0].cubeSizeCm / target / (1 + distance / 1e3) : 0.5;
+          return node.lods[0].cubeSizeCm > target ? 3 + node.lods[0].cubeSizeCm / target * (focusRay.intersectsBox(box) ? 16 : 1) / (1 + distance / 128) : 0.5;
         }
         return visible ? node.lods[0].maxErrorCm / 100 * Math.max(1, exaggeration) / worldUnitsPerPixel(camera, height, Math.max(1, box.distanceToPoint(camera.position))) : 0;
       };
@@ -25147,7 +25295,9 @@ vec3 worldMorphPosition() {
           (id) => (this.active.get(id)?.readyAt ?? Infinity) <= this.time.value
         )
       ).map((node) => ({ node, error: error(node) })).sort((a, b) => a.error - b.error);
-      const cheap = coarsen.find((p) => p.error < 1);
+      const overBudget = cubes && current.reduce((sum, p) => sum + p.node.lods[0].triangles, 0) > this.budget.triangles;
+      const cheap = coarsen.find((p) => p.error < 1 || overBudget);
+      this.budgetLimited = false;
       if (cheap && this.fits(cheap.node.children, [cheap.node]))
         this.replace(cheap.node.children, [cheap.node], true);
       else {
@@ -25158,6 +25308,7 @@ vec3 worldMorphPosition() {
             this.replace([node.id], children, false);
             break;
           }
+          this.budgetLimited = true;
           const reclaimed = [];
           let reclaim;
           for (const parent of coarsen) {
@@ -25193,7 +25344,10 @@ vec3 worldMorphPosition() {
         triangles += node.lods[0].triangles;
         bytes += worldGeometryBytes(node.lods[0]);
       }
-      return triangles <= WORLD_TRIANGLES && bytes <= WORLD_RESIDENT_BYTES;
+      const currentTriangles = [...this.active.values()].reduce((sum, p) => sum + p.node.lods[0].triangles, 0);
+      const coarsening = add.every((node) => node.children?.every((id) => remove.includes(id)));
+      const triangleLimit = this.cubes ? Math.max(this.budget.triangles, coarsening ? currentTriangles - 1 : 0) : WORLD_TRIANGLES;
+      return triangles <= triangleLimit && bytes <= WORLD_RESIDENT_BYTES;
     }
     replace(remove, nodes, coarsening) {
       if (!this.fits(remove, nodes)) return;
@@ -25210,13 +25364,11 @@ vec3 worldMorphPosition() {
       const load = async () => {
         while (cursor < nodes.length) {
           const node = nodes[cursor++], descriptor = node.lods[0];
-          const bytes = await boundedResponse(
-            await this.request(new URL(descriptor.url, this.context.url), {
-              signal: tx.controller.signal
-            }),
-            worldBinaryBytes(descriptor),
-            tx.controller.signal,
-            "Progressive patch"
+          const bytes = await worldMeshBytes(
+            this.request,
+            new URL(descriptor.url, this.context.url),
+            descriptor,
+            tx.controller.signal
           );
           tx.controller.signal.throwIfAborted();
           const geometry = worldGeometry(
@@ -25226,7 +25378,8 @@ vec3 worldMorphPosition() {
             this.context.centerX,
             this.context.centerY,
             this.context.mapBounds,
-            this.cubes
+            this.cubes,
+            this.manifest.statistics.partitionDimensions === 3
           );
           const mesh = this.createMesh(geometry);
           tx.loaded.set(node.id, mesh);
@@ -25235,7 +25388,8 @@ vec3 worldMorphPosition() {
               geometry,
               node,
               this.context.centerX,
-              this.context.centerY
+              this.context.centerY,
+              this.manifest.statistics.partitionDimensions === 3
             ));
           if (!this.cubes) this.installPicking(mesh);
         }
@@ -25273,7 +25427,7 @@ vec3 worldMorphPosition() {
         const bytes = (mesh) => mesh.geometry.getAttribute("position").count * 32 + (mesh.geometry.index?.count ?? 0) * 4;
         const finalTriangles = [...next.values()].reduce((sum, p) => sum + (p.mesh.geometry.index?.count ?? 0) / 3, 0) + plans.reduce((sum, plan) => sum + plan.faces.length * 2, 0);
         const residentBytes = this.meshes.reduce((sum, mesh) => sum + bytes(mesh), 0) + [...tx.loaded.values()].reduce((sum, mesh) => sum + bytes(mesh), 0) + plans.reduce((sum, plan) => sum + plan.faces.length * (4 * 32 + 6 * 4), 0);
-        if (finalTriangles > WORLD_TRIANGLES || residentBytes > WORLD_RESIDENT_BYTES)
+        if (finalTriangles > (this.cubes ? MAX_TERRAIN_TRIANGLES : WORLD_TRIANGLES) || residentBytes > WORLD_RESIDENT_BYTES)
           throw new Error("Neighbor-aware cube seams exceed the geometry budget.");
       }
       const seams = plans.map((plan) => plan.faces.length ? this.createMesh(cubeSeamGeometry(
@@ -25348,8 +25502,191 @@ vec3 worldMorphPosition() {
       );
       this.status({
         retry: !!this.error,
-        text: `${this.cubes ? "Cubes" : "Triangles"}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` + (this.cubes ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; detail is budget-limited.` : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) + (!this.initialized ? " Loading complete 3D base; no surface displayed until ready." : "") + (this.transaction ? " Streaming\u2026" : "") + (this.error ? ` Patch failed: ${this.error}. ${this.initialized ? "Previous complete surface retained" : "No 3D base loaded"}; retry available.` : "")
+        text: `${this.cubes ? "Cubes" : "Triangles"}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` + (this.cubes ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; adaptive budget ${this.budget.triangles.toLocaleString()} triangles, 96 MiB.` : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) + (!this.initialized ? " Loading complete 3D base; no surface displayed until ready." : "") + (this.transaction ? " Streaming\u2026" : "") + (this.error ? ` Patch failed: ${this.error}. ${this.initialized ? "Previous complete surface retained" : "No 3D base loaded"}; retry available.` : "")
       });
+    }
+  };
+
+  // src/voxel-inspection.ts
+  var MAX_BYTES = 32 * 1024 * 1024;
+  var axes = ["X", "Y", "Z"];
+  function object(value2) {
+    if (!value2 || typeof value2 !== "object" || Array.isArray(value2))
+      throw new Error("Invalid voxel inspection object.");
+    return value2;
+  }
+  function numeric(value2) {
+    if (typeof value2 !== "number" || !Number.isFinite(value2))
+      throw new Error("Invalid voxel inspection number.");
+    return value2;
+  }
+  function voxelAt(point, normal, grid, sizeCm) {
+    if (![100, 200, 400, 800, 1600, 3200, 6400].includes(sizeCm))
+      throw new Error("Unsupported voxel size.");
+    const b = { ...grid };
+    for (const axis of axes) {
+      const key = axis.toLowerCase();
+      const p = numeric(point[key]) - numeric(normal[key]) * 0.5;
+      const min = numeric(grid[`min${axis}`]), max = numeric(grid[`max${axis}`]);
+      if (min >= max) throw new Error("Invalid voxel grid bounds.");
+      const low = min + Math.floor((p - min) / sizeCm) * sizeCm;
+      if (low < min || low >= max) throw new Error("Picked voxel is outside the occupancy grid.");
+      b[`min${axis}`] = low;
+      b[`max${axis}`] = Math.min(max, low + sizeCm);
+    }
+    const metres = (n) => String(Number((n / 100).toFixed(6)));
+    return {
+      bounds: b,
+      sizeCm,
+      tuple: `(${[b.minX, b.minY, b.minZ, sizeCm].map(metres).join(",")})`
+    };
+  }
+  function validateVoxelReference(value2, world, tileSize) {
+    const v = object(value2), cell = numeric(v.cellSizeCm);
+    const columns = Math.ceil((world.maxX - world.minX) / tileSize);
+    const rows = Math.ceil((world.maxY - world.minY) / tileSize);
+    if (v.version !== 1 || ![100, 200, 400].includes(cell) || !Array.isArray(v.tiles) || v.tiles.length !== columns * rows || v.tiles.length > 262144)
+      throw new Error("Incomplete or unsupported voxel inspection grid.");
+    const seen = /* @__PURE__ */ new Set();
+    const tiles = v.tiles.map((raw) => {
+      const t = object(raw), source = object(t.bounds);
+      const b = {
+        minX: numeric(source.minX),
+        minY: numeric(source.minY),
+        minZ: numeric(source.minZ),
+        maxX: numeric(source.maxX),
+        maxY: numeric(source.maxY),
+        maxZ: numeric(source.maxZ)
+      };
+      const x = (b.minX - world.minX) / tileSize, y = (b.minY - world.minY) / tileSize;
+      const key = `${x},${y}`, bytes = numeric(t.decodedBytes);
+      if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= columns || y >= rows || seen.has(key) || b.maxX !== Math.min(world.maxX, b.minX + tileSize) || b.maxY !== Math.min(world.maxY, b.minY + tileSize) || b.minZ !== world.minZ || b.maxZ !== world.maxZ || b.minZ >= b.maxZ || !Number.isInteger(bytes) || bytes < 12 || bytes > MAX_BYTES || typeof t.url !== "string" || /[\s\\?#%]/.test(t.url) || t.url.split("/").includes("..") || !/^(?:[a-z0-9_./-]+\.air\.gz|https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.air\.gz)$/.test(
+        t.url
+      ) || t.url.startsWith("/"))
+        throw new Error("Invalid voxel inspection tile or URL.");
+      seen.add(key);
+      return { bounds: b, url: t.url, decodedBytes: bytes };
+    });
+    return { version: 1, cellSizeCm: cell, tiles };
+  }
+  function readVoxelOccupancy(buffer, tile, cell) {
+    if (buffer.byteLength !== tile.decodedBytes || buffer.byteLength < 12 || buffer.byteLength > MAX_BYTES)
+      throw new Error("Voxel inspection length differs from its manifest.");
+    const view = new DataView(buffer);
+    const columns = view.getInt32(0, true), rows = view.getInt32(4, true);
+    if (columns !== Math.ceil((tile.bounds.maxX - tile.bounds.minX) / cell) || rows !== Math.ceil((tile.bounds.maxY - tile.bounds.minY) / cell) || columns < 1 || rows < 1 || columns * rows > 262144)
+      throw new Error("Invalid voxel inspection dimensions.");
+    const levels = Math.ceil((tile.bounds.maxZ - tile.bounds.minZ) / cell);
+    const offsets = new Uint32Array(columns * rows);
+    let offset = 8;
+    for (let i = 0; i < offsets.length; i++) {
+      if (offset + 4 > buffer.byteLength) throw new Error("Truncated voxel inspection column.");
+      offsets[i] = offset;
+      const count = view.getInt32(offset, true);
+      offset += 4;
+      if (count < 0 || count > levels || offset + count * 12 > buffer.byteLength)
+        throw new Error("Invalid voxel inspection interval count.");
+      let previous = 0;
+      for (let j = 0; j < count; j++, offset += 12) {
+        const low = view.getInt32(offset, true), high = view.getInt32(offset + 4, true);
+        const component = view.getInt32(offset + 8, true);
+        if (low < previous || high <= low || high > levels || component !== 0 && component !== -1)
+          throw new Error("Invalid or unnormalized voxel inspection interval.");
+        previous = high;
+      }
+    }
+    if (offset !== buffer.byteLength) throw new Error("Trailing voxel inspection data.");
+    return { view, offsets, columns, rows };
+  }
+  function overlap(a, b, c, d) {
+    return Math.max(0, Math.min(b, d) - Math.max(a, c));
+  }
+  function voxelSolidVolume(data, tile, cell, query) {
+    const b = tile.bounds;
+    let solid = 0;
+    const lowZ = Math.max(b.minZ, query.minZ), highZ = Math.min(b.maxZ, query.maxZ);
+    for (let y = Math.max(0, Math.floor((query.minY - b.minY) / cell)); y < Math.min(data.rows, Math.ceil((query.maxY - b.minY) / cell)); y++)
+      for (let x = Math.max(0, Math.floor((query.minX - b.minX) / cell)); x < Math.min(data.columns, Math.ceil((query.maxX - b.minX) / cell)); x++) {
+        const area2 = overlap(
+          query.minX,
+          query.maxX,
+          b.minX + x * cell,
+          Math.min(b.maxX, b.minX + (x + 1) * cell)
+        ) * overlap(
+          query.minY,
+          query.maxY,
+          b.minY + y * cell,
+          Math.min(b.maxY, b.minY + (y + 1) * cell)
+        );
+        let height = Math.max(0, highZ - lowZ);
+        let offset = data.offsets[y * data.columns + x];
+        const count = data.view.getInt32(offset, true);
+        offset += 4;
+        for (let i = 0; i < count; i++, offset += 12)
+          height -= overlap(
+            lowZ,
+            highZ,
+            b.minZ + data.view.getInt32(offset, true) * cell,
+            b.minZ + data.view.getInt32(offset + 4, true) * cell
+          );
+        solid += area2 * Math.max(0, height);
+      }
+    return solid;
+  }
+  var VoxelReferenceReader = class {
+    constructor(reference, url, request = fetch) {
+      this.reference = reference;
+      this.url = url;
+      this.request = request;
+      this.cache = /* @__PURE__ */ new Map();
+      this.request = request.bind(globalThis);
+    }
+    async fill(query, signal) {
+      const tiles = this.reference.tiles.filter(
+        (t) => axes.every(
+          (a) => overlap(
+            query[`min${a}`],
+            query[`max${a}`],
+            t.bounds[`min${a}`],
+            t.bounds[`max${a}`]
+          ) > 0
+        )
+      );
+      const volume = (query.maxX - query.minX) * (query.maxY - query.minY) * (query.maxZ - query.minZ);
+      const covered = tiles.reduce(
+        (sum, t) => sum + axes.reduce(
+          (v, a) => v * overlap(
+            query[`min${a}`],
+            query[`max${a}`],
+            t.bounds[`min${a}`],
+            t.bounds[`max${a}`]
+          ),
+          1
+        ),
+        0
+      );
+      if (!Number.isFinite(volume) || !(volume > 0) || Math.abs(covered - volume) > volume * 1e-10)
+        throw new Error("Voxel is not fully covered by the reference grid.");
+      let solid = 0;
+      for (const tile of tiles) {
+        signal.throwIfAborted();
+        let data = this.cache.get(tile.url);
+        if (!data) {
+          const response = await this.request(new URL(tile.url, this.url), { signal });
+          data = readVoxelOccupancy(
+            await boundedResponse(response, tile.decodedBytes, signal, "Voxel inspection"),
+            tile,
+            this.reference.cellSizeCm
+          );
+          signal.throwIfAborted();
+          this.cache.set(tile.url, data);
+          while (this.cache.size > 2) this.cache.delete(this.cache.keys().next().value);
+        }
+        if (data.view.byteLength !== tile.decodedBytes || data.columns !== Math.ceil((tile.bounds.maxX - tile.bounds.minX) / this.reference.cellSizeCm) || data.rows !== Math.ceil((tile.bounds.maxY - tile.bounds.minY) / this.reference.cellSizeCm))
+          throw new Error("Cached voxel inspection binary does not match this partition.");
+        solid += voxelSolidVolume(data, tile, this.reference.cellSizeCm, query);
+      }
+      return solid / volume * 100;
     }
   };
 
@@ -25357,7 +25694,7 @@ vec3 worldMorphPosition() {
   var WORLD_TILE_BYTES = 32 * 1024 * 1024;
   var WORLD_RESIDENT_BYTES = 96 * 1024 * 1024;
   var WORLD_TRIANGLES = 1e6;
-  function object(value2) {
+  function object2(value2) {
     if (typeof value2 !== "object" || value2 === null || Array.isArray(value2))
       throw new Error("Invalid world-model object.");
     return value2;
@@ -25377,7 +25714,7 @@ vec3 worldMorphPosition() {
     return value2;
   }
   function bounds(value2, patch = false) {
-    const b = object(value2);
+    const b = object2(value2);
     const coordinate = (name) => number(b[name], -1e8, 1e8);
     const result = {
       minX: coordinate("minX"),
@@ -25398,10 +25735,13 @@ vec3 worldMorphPosition() {
     return lod.vertices * (lod.morph ? 52 : 32) + lod.triangles * 12;
   }
   function validateWorldModel(value2, mapKey) {
-    const v = object(value2);
+    const v = object2(value2);
     const progressive = v.roots !== void 0;
-    const statistics = object(v.statistics);
+    const statistics = object2(v.statistics);
     const cubes = progressive && statistics.hierarchyVersion === 3;
+    const spatial = cubes && statistics.partitionDimensions === 3;
+    if (cubes && statistics.partitionDimensions !== void 0 && statistics.partitionDimensions !== 2 && statistics.partitionDimensions !== 3)
+      throw new Error("Unsupported cube partition dimensions.");
     if (v.version !== 1 || v.mapKey !== mapKey || v.heightUnits !== "centimeters" || v.meshFormat !== "awm1" || !Array.isArray(v.tiles) || !v.tiles.length || v.tiles.length > (progressive ? 262144 : 16384) || !Array.isArray(v.warnings) || !v.warnings.every((w) => typeof w === "string"))
       throw new Error("Invalid world-model manifest.");
     const b = bounds(v.bounds, progressive);
@@ -25411,7 +25751,7 @@ vec3 worldMorphPosition() {
     const ids = /* @__PURE__ */ new Set();
     const cells = /* @__PURE__ */ new Set();
     const tiles = v.tiles.map((raw) => {
-      const t = object(raw), id = text(t.id), box = bounds(t.bounds, progressive);
+      const t = object2(raw), id = text(t.id), box = bounds(t.bounds, progressive);
       const column = Math.round((box.minX - b.minX) / tileSize);
       const row = Math.round((box.minY - b.minY) / tileSize);
       const cell = `${column},${row}`;
@@ -25421,19 +25761,23 @@ vec3 worldMorphPosition() {
       cells.add(cell);
       let previousError = -1;
       const lods = t.lods.map((rawLod) => {
-        const l = object(rawLod);
+        const l = object2(rawLod);
         const lod = {
           url: text(l.url),
           vertices: integer(l.vertices, 3, 1e7),
           triangles: integer(l.triangles, 1, 1e7),
           maxErrorCm: number(l.maxErrorCm, 0, 1e5),
+          ...l.byteOffset !== void 0 || l.byteLength !== void 0 ? {
+            byteOffset: integer(l.byteOffset, 0, Number.MAX_SAFE_INTEGER),
+            byteLength: integer(l.byteLength, 1, WORLD_TILE_BYTES + 65536)
+          } : {},
           ...cubes ? { cubeSizeCm: number(l.cubeSizeCm, 100, 6400) } : progressive ? { morph: true } : {}
         };
         if (progressive && !cubes && l.morph !== true)
           throw new Error("Progressive patches require collapse correspondence.");
         if (cubes && (l.morph === true || ![100, 200, 400, 800, 1600, 3200, 6400].includes(lod.cubeSizeCm)))
           throw new Error("Cube patches require aligned non-morphing cube sizes.");
-        if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) && !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp)$/.test(lod.url) || /[\s\\]/.test(lod.url) || lod.url.split("/").includes("..") || worldBinaryBytes(lod) > WORLD_TILE_BYTES || lod.maxErrorCm < previousError)
+        if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) && !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp|awmb)$/.test(lod.url) || /[\s\\]/.test(lod.url) || lod.url.split("/").includes("..") || worldBinaryBytes(lod) > WORLD_TILE_BYTES || lod.maxErrorCm < previousError || lod.url.endsWith(".awmb") !== (lod.byteOffset !== void 0) || lod.byteOffset !== void 0 && (!cubes || !Number.isSafeInteger(lod.byteOffset + lod.byteLength)))
           throw new Error("Invalid world-model LOD, mesh URL or 32 MiB tile budget.");
         previousError = lod.maxErrorCm;
         return lod;
@@ -25473,7 +25817,7 @@ vec3 worldMorphPosition() {
         for (let i = 0; i < base.length; i++)
           for (let j = 0; j < i; j++) {
             const a = base[i].bounds, b2 = base[j].bounds;
-            if (Math.min(a.maxX, b2.maxX) > Math.max(a.minX, b2.minX) && Math.min(a.maxY, b2.maxY) > Math.max(a.minY, b2.minY))
+            if (Math.min(a.maxX, b2.maxX) > Math.max(a.minX, b2.minX) && Math.min(a.maxY, b2.maxY) > Math.max(a.minY, b2.minY) && (!spatial || Math.min(a.maxZ, b2.maxZ) > Math.max(a.minZ, b2.minZ)))
               throw new Error("Overlapping complete-base cube partitions.");
           }
       if (base.reduce((sum, tile) => sum + tile.lods[0].triangles, 0) > WORLD_TRIANGLES || base.reduce((sum, tile) => sum + worldGeometryBytes(tile.lods[0]), 0) > WORLD_RESIDENT_BYTES)
@@ -25491,10 +25835,11 @@ vec3 worldMorphPosition() {
       warnings: v.warnings,
       statistics,
       tiles,
-      ...roots ? { roots } : {}
+      ...roots ? { roots } : {},
+      ...v.voxelInspection !== void 0 ? { voxelInspection: validateVoxelReference(v.voxelInspection, b, tileSize) } : {}
     };
   }
-  function worldGeometry(buffer, lod, box, centerX, centerY, mapBounds, textureBlockSides = false) {
+  function worldGeometry(buffer, lod, box, centerX, centerY, mapBounds, textureBlockSides = false, spatial = false) {
     const view = new DataView(buffer);
     if (buffer.byteLength !== worldBinaryBytes(lod) || view.getUint32(0, true) !== (lod.morph ? 827348801 : 827152193) || view.getUint32(4, true) !== lod.vertices || view.getUint32(8, true) !== lod.triangles || view.getUint32(12, true) !== 0)
       throw new Error("Invalid AWM1 header or binary length.");
@@ -25526,12 +25871,13 @@ vec3 worldMorphPosition() {
     }
     const indexStart = 16 + lod.vertices * 12;
     const flagStart = indexStart + lod.triangles * 12;
-    const counts = [0, 0, 0, 0, 0];
+    const counts = [0, 0, 0, 0, 0, 0];
     const surfaceGroups = new Uint8Array(lod.triangles);
     const coordinate = (vertex, axis) => view.getFloat32(16 + vertex * 12 + axis * 4, true);
     for (let i = 0; i < lod.triangles; i++) {
       const flag = view.getUint8(flagStart + i);
-      if (flag > 3) throw new Error("Unknown world-model surface flags.");
+      if (flag > 3 && !(spatial && lod.cubeSizeCm && flag === 8))
+        throw new Error("Unknown world-model surface flags.");
       const a = view.getUint32(indexStart + i * 12, true), b = view.getUint32(indexStart + i * 12 + 4, true), c = view.getUint32(indexStart + i * 12 + 8, true);
       if (a >= lod.vertices || b >= lod.vertices || c >= lod.vertices || a === b || b === c || a === c)
         throw new Error("Invalid world-model triangle indices.");
@@ -25541,7 +25887,7 @@ vec3 worldMorphPosition() {
       if (nx === 0 && ny === 0 && nz === 0) throw new Error("Degenerate world-model triangle.");
       if (lod.cubeSizeCm && Number(nx !== 0) + Number(ny !== 0) + Number(nz !== 0) !== 1)
         throw new Error("Cube faces must remain axis-aligned.");
-      const group = textureBlockSides && flag === 0 && nz === 0 ? 4 : flag;
+      const group = flag === 8 ? 5 : textureBlockSides && flag === 0 && nz === 0 ? 4 : flag;
       surfaceGroups[i] = group;
       counts[group] += 3;
     }
@@ -25733,6 +26079,17 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       if (this.progressive) return this.progressive.meshes;
       return [...this.resident.values()].map((item) => item.mesh);
     }
+    cubeSizeCm(object3) {
+      if (this.progressive) return this.progressive.cubeSizeCm(object3);
+      for (const item of this.resident.values())
+        if (item.mesh === object3) return item.tile.lods[item.lod].cubeSizeCm;
+      return void 0;
+    }
+    voxelFill(bounds2, signal) {
+      if (!this.manifest?.voxelInspection || !this.context) return void 0;
+      this.voxelReader ?? (this.voxelReader = new VoxelReferenceReader(this.manifest.voxelInspection, this.context.url, this.request));
+      return this.voxelReader.fill(bounds2, signal);
+    }
     get active() {
       return !!this.context;
     }
@@ -25756,6 +26113,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.wireMaterial = void 0;
       this.clipPlane.constant = 1e9;
       this.context = void 0;
+      this.voxelReader = void 0;
       this.manifest = void 0;
       this.desired = [];
       this.failed.clear();
@@ -25848,7 +26206,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       const m = this.manifest, c = this.context;
       if (!m || !c) return;
       if (this.progressive) {
-        this.progressive.update(camera, height, this.appearance.exaggeration, target);
+        this.progressive.update(camera, height, this.appearance.exaggeration);
         return;
       }
       this.desired = selectWorldTiles(
@@ -25896,18 +26254,19 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       const context = this.context;
       if (!context) throw new Error("World-model material context is missing.");
       const { mapBounds: c, centerX, centerY } = context;
+      const coverage = this.manifest?.bounds ?? c;
       const clippingPlanes = [
         this.clipPlane,
         ...this.manifest?.statistics.representation === "world-boundaries" ? [] : [
-          new Plane(new Vector3(1, 0, 0), (centerX - c.minX) / 100),
-          new Plane(new Vector3(-1, 0, 0), (c.maxX - centerX) / 100),
-          new Plane(new Vector3(0, 0, 1), (centerY - c.minY) / 100),
-          new Plane(new Vector3(0, 0, -1), (c.maxY - centerY) / 100)
+          new Plane(new Vector3(1, 0, 0), (centerX - coverage.minX) / 100),
+          new Plane(new Vector3(-1, 0, 0), (coverage.maxX - centerX) / 100),
+          new Plane(new Vector3(0, 0, 1), (centerY - coverage.minY) / 100),
+          new Plane(new Vector3(0, 0, -1), (coverage.maxY - centerY) / 100)
         ]
       ];
       const old = this.materials;
       const blockSides = this.manifest?.statistics.representation === "blocks";
-      const image = context.texture ? object(context.texture.image) : void 0;
+      const image = context.texture ? object2(context.texture.image) : void 0;
       const texel = image ? new Vector2(
         1 / number(image.width, 1, 1e5),
         1 / number(image.height, 1, 1e5)
@@ -26165,12 +26524,6 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
   function dollySurface(camera, lookTarget, surface, pixels, maximumDistance = 5e5) {
     if (!finite(camera.position) || !finite(lookTarget) || surface && !finite(surface) || !Number.isFinite(pixels) || !Number.isFinite(maximumDistance) || maximumDistance <= MIN_FOCUS_DISTANCE)
       throw new Error("Invalid surface-navigation dolly input.");
-    if (camera instanceof OrthographicCamera) {
-      camera.zoom = MathUtils.clamp(camera.zoom * Math.exp(-MathUtils.clamp(pixels * ZOOM_GAIN, -20, 20)), 0.01, 1e5);
-      camera.updateProjectionMatrix();
-      camera.updateMatrixWorld();
-      return camera.position.distanceTo(lookTarget);
-    }
     const focus = (surface ?? lookTarget).clone();
     const distance = camera.position.distanceTo(focus);
     if (distance <= 0 && !surface)
@@ -26204,10 +26557,10 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
     const geometries = /* @__PURE__ */ new Set();
     const materials = /* @__PURE__ */ new Set();
     const textures = /* @__PURE__ */ new Set();
-    group.traverse((object2) => {
-      if (object2 instanceof Mesh || object2 instanceof Points || object2 instanceof LineSegments) {
-        geometries.add(object2.geometry);
-        for (const material of Array.isArray(object2.material) ? object2.material : [object2.material]) {
+    group.traverse((object3) => {
+      if (object3 instanceof Mesh || object3 instanceof Points || object3 instanceof LineSegments) {
+        geometries.add(object3.geometry);
+        for (const material of Array.isArray(object3.material) ? object3.material : [object3.material]) {
           materials.add(material);
           if ("map" in material && material.map instanceof Texture)
             textures.add(material.map);
@@ -26423,6 +26776,17 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
           this.worldBoundaries.update(this.camera, this.controls.target, this.renderer.domElement.clientHeight);
         }
         this.renderer.render(this.scene, this.camera);
+        if (this.map && this.manifest) {
+          const position = this.toWorld(this.camera.position);
+          const ark = this.map.coordinates.getArkCoordinates(position);
+          const text2 = `ARK: ${displayNumber(ark.lat)}, ${displayNumber(ark.long)}
+CCC: ${encodeCameraCode(
+            [position.x, position.y, position.z],
+            this.camera.getWorldDirection(new Vector3())
+          )}`;
+          const label = el("camera-details");
+          if (label.textContent !== text2) label.textContent = text2;
+        }
       });
       try {
         const maps = await this.getAvailableMaps();
@@ -26496,12 +26860,6 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         "click",
         () => this.setPanelExpanded(el("control-panel").hidden)
       );
-      el("camera-projection").addEventListener("change", () => {
-        const projection = el("camera-projection").value;
-        if (projection !== "perspective" && projection !== "orthographic")
-          throw new Error("Unsupported camera projection.");
-        this.setProjection(projection);
-      });
       el("camera-copy").addEventListener("click", () => {
         void this.copyCoordinates();
       });
@@ -26533,6 +26891,11 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         }
       });
       el("world-model-retry").addEventListener("click", () => this.worldModel.retry());
+      el("debug-unpin").addEventListener("click", () => {
+        this.pinnedDebug = void 0;
+        this.clearVoxelInspection();
+        this.renderDebugInspection();
+      });
       el("world-boundary-retry").addEventListener("click", () => this.worldBoundaries.retry());
       input("world-cutaway").addEventListener("input", () => this.appearance());
       el("retry").addEventListener("click", () => {
@@ -26743,11 +27106,18 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         this.pick(event, false);
       });
       canvas.addEventListener("pointerleave", () => {
-        el("cursor-details").textContent = "Cursor: \u2014";
+        this.hoverDebug = void 0;
+        this.renderDebugInspection();
       });
     }
     async load(key) {
       this.closeContextMenu();
+      this.pinnedDebug = void 0;
+      this.clearVoxelInspection();
+      this.hoverDebug = void 0;
+      el("world-dimensions").textContent = "";
+      el("camera-details").textContent = "ARK: \u2014\nCCC: \u2014";
+      this.renderDebugInspection();
       this.stopFlight();
       this.surfaceDrag = void 0;
       this.touchPointers.clear();
@@ -26893,21 +27263,21 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       const visible = this.worldModel.meshes.length === 0;
       if (!force && this.flatMap.visible === visible) return;
       this.flatMap.visible = visible;
-      this.resources.traverse((object2) => {
-        if (!(object2 instanceof Points)) return;
-        const positions = object2.geometry.getAttribute("position");
-        let elevations = object2.geometry.getAttribute("resourceElevation");
+      this.resources.traverse((object3) => {
+        if (!(object3 instanceof Points)) return;
+        const positions = object3.geometry.getAttribute("position");
+        let elevations = object3.geometry.getAttribute("resourceElevation");
         if (!elevations) {
           elevations = new Float32BufferAttribute(
             Array.from({ length: positions.count }, (_, i) => positions.getY(i)),
             1
           );
-          object2.geometry.setAttribute("resourceElevation", elevations);
+          object3.geometry.setAttribute("resourceElevation", elevations);
         }
         for (let i = 0; i < positions.count; i++) positions.setY(i, visible ? 0 : elevations.getX(i));
         positions.needsUpdate = true;
-        object2.geometry.computeBoundingSphere();
-        for (const material of Array.isArray(object2.material) ? object2.material : [object2.material]) {
+        object3.geometry.computeBoundingSphere();
+        for (const material of Array.isArray(object3.material) ? object3.material : [object3.material]) {
           material.clippingPlanes = visible ? null : [this.worldModel.clipPlane];
           material.needsUpdate = true;
         }
@@ -26971,19 +27341,6 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       toggle.title = expanded ? "Collapse controls" : "Expand controls";
       toggle.textContent = expanded ? "\u2039" : "\u203A";
     }
-    setProjection(projection) {
-      this.stopFlight();
-      const previous = this.camera.position.clone();
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      this.camera = changeProjection(this.camera, this.controls.target, projection, rect.width / Math.max(1, rect.height));
-      this.controls.object = this.camera;
-      this.controls.update();
-      this.lastCameraPosition.copy(previous);
-      this.enforceCameraCollision();
-      this.lastCameraPosition.copy(this.camera.position);
-      this.surfaceDrag = void 0;
-      this.appearance();
-    }
     home(top) {
       if (!this.manifest) return;
       this.stopFlight();
@@ -27014,7 +27371,6 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.surfaceDrag = void 0;
       this.movementMode = mode;
       el("movement-mode").value = mode;
-      el("movement-mode-status").textContent = `Movement mode: ${mode === "camera" ? "Camera" : "World"}`;
       el("camera-look-options").hidden = mode !== "camera";
       this.controls.maxPolarAngle = mode === "camera" ? Math.PI - 1e-3 : this.worldModel.active ? Math.PI * 0.98 : Math.PI * 0.495;
       this.controls.update();
@@ -27118,10 +27474,10 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
     buildResources() {
       if (!this.map || !this.manifest) return;
       el("resource-details").textContent = "No resource selected.";
-      this.resources.traverse((object2) => {
-        if (object2 instanceof Points) {
-          object2.geometry.dispose();
-          object2.material.dispose();
+      this.resources.traverse((object3) => {
+        if (object3 instanceof Points) {
+          object3.geometry.dispose();
+          object3.material.dispose();
         }
       });
       this.resources.clear();
@@ -27252,8 +27608,16 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       });
       this.worldBoundaries.group.visible = checked("show-world-boundaries");
       el("terrain-opacity-value").textContent = `${displayNumber(value("terrain-opacity") * 100)}%`;
-      el("debug-panel").hidden = !checked("debug-toggle");
+      if (this.voxelOutline) this.voxelOutline.visible = checked("debug-toggle");
       document.body.classList.toggle("show-debug", checked("debug-toggle"));
+      const c = this.map?.coordinates;
+      el("world-dimensions").textContent = c ? `World:
+Bounds:
+  X: ${displayNumber(c.minX)}\u2026${displayNumber(c.maxX)}
+  Y: ${displayNumber(c.minY)}\u2026${displayNumber(c.maxY)}
+  Z: ${displayNumber(c.minZ)}\u2026${displayNumber(c.maxZ)}
+Center: ${displayNumber(c.centerX)}, ${displayNumber(c.centerY)}
+Scale: ${displayNumber(c.scaleX)}, ${displayNumber(c.scaleY)}` : "";
       for (const layer of this.layers) {
         layer.points.material.size = value("resource-size");
         layer.glow.material.size = value("resource-size") * 2.5;
@@ -27274,18 +27638,41 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       if (ground) {
         const world = this.toWorld(ground.point);
         const ark = this.map.coordinates.getArkCoordinates(world);
-        el("cursor-details").textContent = `Cursor: Lat ${ark.lat.toFixed(2)} / Long ${ark.long.toFixed(2)}`;
-        const c = this.map.coordinates;
-        el("debug-panel").textContent = `Canvas ${displayNumber(event.clientX - rect.left)}, ${displayNumber(event.clientY - rect.top)}
-World XYZ (cm): ${displayNumber(world.x)}, ${displayNumber(world.y)}, ${displayNumber(world.z)}
-ARK: ${displayNumber(ark.lat)}, ${displayNumber(ark.long)}
-Bounds: ${displayNumber(c.minX)}\u2026${displayNumber(c.maxX)} / ${displayNumber(c.minY)}\u2026${displayNumber(c.maxY)}`;
-        el("debug-panel").textContent += `
-Z bounds: ${displayNumber(c.minZ)}\u2026${displayNumber(c.maxZ)}
-Center XY: ${displayNumber(c.centerX)}, ${displayNumber(c.centerY)}
-Scale XY: ${displayNumber(c.scaleX)}, ${displayNumber(c.scaleY)}
-ARK Z: ${displayNumber(ark.z)}`;
-      } else el("cursor-details").textContent = "Cursor: no terrain";
+        const cubeSizeCm = this.worldModel.cubeSizeCm(ground.object);
+        let details = `CCC: ${encodeCameraCode(
+          [world.x, world.y, world.z],
+          this.camera.getWorldDirection(new Vector3())
+        )}`;
+        let voxel;
+        let unpin = false;
+        if (cubeSizeCm !== void 0 && ground.face && this.worldModelManifest) {
+          try {
+            const n = ground.face.normal.clone().applyNormalMatrix(
+              new Matrix3().getNormalMatrix(ground.object.matrixWorld)
+            );
+            const normal = { x: n.x, y: n.z, z: n.y };
+            voxel = voxelAt(world, normal, this.worldModelManifest.bounds, cubeSizeCm);
+            details += `
+Voxel: ${voxel.tuple.slice(1, -1)}m`;
+            const pinned = this.pinnedDebug?.voxel;
+            unpin = pinned !== void 0 && voxelAt(world, normal, this.worldModelManifest.bounds, pinned.sizeCm).tuple === pinned.tuple;
+          } catch (error) {
+            details += `
+Voxel selection failed: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        }
+        details += `
+Canvas: ${displayNumber(event.clientX - rect.left)}, ${displayNumber(event.clientY - rect.top)}`;
+        this.hoverDebug = { ark: `${displayNumber(ark.lat)}, ${displayNumber(ark.long)}`, details, voxel };
+        if (select && checked("debug-toggle")) {
+          this.clearVoxelInspection();
+          this.pinnedDebug = unpin ? void 0 : this.hoverDebug;
+          if (!unpin && voxel) this.pinVoxel(voxel);
+        }
+      } else {
+        this.hoverDebug = void 0;
+      }
+      this.renderDebugInspection();
       if (ray.params.Points)
         ray.params.Points.threshold = worldUnitsPerPixel(this.camera, rect.height, this.camera.position.distanceTo(this.controls.target)) * (value("resource-size") + 4) / 2;
       const hits = ray.intersectObjects(
@@ -27303,9 +27690,40 @@ Lat ${displayNumber(ark.lat)} / Long ${displayNumber(ark.long)}
 World XYZ (cm): ${displayNumber(point.x)}, ${displayNumber(point.y)}, ${displayNumber(point.z)}
 Height ${displayNumber(point.z / 100)} m`;
         if (select) el("resource-details").textContent = text2;
-        else el("cursor-details").textContent += `
-${text2}`;
       } else if (select) el("resource-details").textContent = "No resource selected.";
+    }
+    renderDebugInspection() {
+      const inspection = this.pinnedDebug ?? this.hoverDebug;
+      el("cursor-details").textContent = `${this.pinnedDebug ? "Pinned" : "Cursor"}: ${inspection?.ark ?? "\u2014"}`;
+      el("debug-inspection-details").textContent = inspection?.details ?? "";
+      el("debug-unpin").hidden = this.pinnedDebug === void 0;
+    }
+    clearVoxelInspection() {
+      if (this.voxelOutline) {
+        this.scene.remove(this.voxelOutline);
+        this.voxelOutline.geometry.dispose();
+        this.voxelOutline.material.dispose();
+        this.voxelOutline = void 0;
+      }
+    }
+    pinVoxel(voxel) {
+      const b = voxel.bounds, m = this.manifest;
+      const box = new BoxGeometry((b.maxX - b.minX) / 100, (b.maxZ - b.minZ) / 100, (b.maxY - b.minY) / 100);
+      const outline = new LineSegments(
+        new EdgesGeometry(box),
+        new LineBasicMaterial({ color: "#ffde89", depthTest: false, depthWrite: false, transparent: true, opacity: 0.95 })
+      );
+      box.dispose();
+      outline.position.set(
+        (b.minX + b.maxX - m.originX - m.maxX) / 200,
+        (b.minZ + b.maxZ) / 200,
+        (b.minY + b.maxY - m.originY - m.maxY) / 200
+      );
+      outline.renderOrder = 1e3;
+      outline.raycast = () => {
+      };
+      this.scene.add(outline);
+      this.voxelOutline = outline;
     }
     closeContextMenu() {
       el("terrain-context-menu").hidePopover();

@@ -55,9 +55,13 @@ nonoverlapping nominal XY grid. Each decoded binary is capped at 32 MiB and meta
 (the progressive hierarchy includes substantially more node descriptors).
 
 The renderer preserves whole tiles and every floor within each resident tile.
+World-model XY clipping uses the model's declared extraction bounds, which may
+extend beyond the minimap. Texture UVs and GPS still use the original image
+calibration; valid caves outside that rectangle are not clipped or stretched.
 Camera/frustum selection chooses error-based LODs, first covering nearby tiles
 coarsely and then refining them, with a 1,000,000-triangle / 96 MiB resident geometry
-budget. Visible tiles are prioritized by camera-to-bounds distance; orbit-target
+budget for triangles and an adaptive triangle budget for cubes (see below).
+Visible tiles are prioritized by camera-to-bounds distance; orbit-target
 distance only breaks ties, so a distant or stale focus cannot spend the budget
 behind nearby terrain. Pending replacements reserve positive budget deltas. Two binary downloads
 can be in flight; their declared-length buffers, temporary geometry during one
@@ -186,8 +190,36 @@ Budget reclamation first verifies that one or more coarsenings can admit the
 higher-priority refinement, including transient residency. Unreachable refinements
 cannot repeatedly evict and reload otherwise useful detail at a stationary camera.
 Only one atomic replacement group is in flight, with at most two downloads.
-The 1,000,000 surface-triangle limit remains unchanged; the 96 MiB geometry budget
-also includes replacement patches waiting for activation.
+Triangles retain the 1,000,000 surface-triangle limit. Cubes start at 1,000,000
+and adapt between the complete-base-aware minimum (at least 250,000) and
+4,000,000 triangles. Every 120 frame intervals, slow median/tail cadence reduces
+the target by 20%; consistently fast cadence raises it by 20% only when more
+detail is budget-blocked. Suspended-tab intervals are excluded. This measures
+frame cadence, not GPU execution time. All geometry, including seams and
+replacement patches waiting for activation, remains limited to 96 MiB.
+An in-flight cube replacement may finish above a newly reduced adaptive target,
+but never above the hard triangle or memory limits; subsequent selection coarsens.
+
+One-metre sources declare `partitionDimensions: 3`: finest mesh chunks span
+128 m in X, Y and Z, and each parent groups up to eight children. Older
+two-dimensional/full-height hierarchies remain supported. Selection favors
+nearby chunks intersecting the center-view ray, so local refinement does not
+require refining a map quadrant's full vertical column. Spatial chunks close
+all six internal faces; the client strips those caps and rebuilds only exposed
+seam rectangles, intersecting neighbors in both dimensions of each face.
+Missing spatial chunks represent exterior air, not solid. AWM1 flag 8 carries
+ignored-space partition masks; these are stripped before rendering and suppress
+neighbor seams without becoming visible walls. Ordinary mesh decoding rejects
+this flag unless spatial cube decoding is explicitly enabled.
+The separate finest occupancy inspection inventory remains full-height XY tiles.
+
+Spatial meshes share content-addressed `.awmb` blobs, normally around 8 MiB each.
+Each LOD names its compressed member's `byteOffset` and `byteLength`.
+The viewer requires an exact HTTP 206 range response with matching
+`Content-Range` and no whole-container `Content-Encoding`, decompresses that
+independent gzip member, and checks its exact decoded mesh size.
+Chunk count and blob count are independent; legacy `.awm.gz` loading is unchanged.
+Cross-origin blob CORS must expose `Content-Range`.
 
 Triangle morphing takes 250 ms in the vertex shader. Per-vertex parent position and
 transition start/direction attributes are uploaded once per replacement; frame
@@ -281,8 +313,7 @@ including per-type counts, cluster centroids, filters, and member indices.
 Marker picking, glow, cave visibility, opacity, lighting, debug
 coordinates, and oblique/north-up navigation are part of the production UI.
 The camera defaults to north-up Perspective, fitted to the full window with a
-small margin and no aspect-ratio cropping. A projection selector switches to
-Orthographic or back while preserving direction and apparent scale at the focus.
+small margin and no aspect-ratio cropping. Perspective is the only camera projection.
 The controls panel has an always-accessible collapse/expand arrow. Numeric
 coordinate and measurement displays use two decimal places.
 Right-clicking visible terrain opens a Copy CCC menu for that exact surface
@@ -320,16 +351,35 @@ screen position instead of snapping it to the center. The camera and its look
 target rotate together around this separate pivot. Right-drag and modified
 left-drag still use OrbitControls panning, without residual damping drift.
 The Movement mode selector and a middle-button click switch World/Camera; dragging
-the middle button still dollies instead of toggling. The bottom-right cursor
-panel permanently shows `Movement mode: World` or `Movement mode: Camera`, even when
-the pointer leaves the canvas or resource picking updates the coordinates.
+the middle button still dollies instead of toggling. The compact bottom-right
+readout shows live camera ARK coordinates and CCC, then Cursor (or Pinned) ARK
+coordinates. Show debug adds the inspected surface CCC, voxel minimum-corner XYZ
+and actual resident scale in metres, canvas position, and Unpin.
+With Show debug enabled, clicking terrain pins its inspection snapshot; clicking
+another voxel replaces it. Clicking within the pinned voxel unpins it, as does
+Unpin. The original pinned bounds determine identity even if resident LOD changes.
+Empty-canvas clicks and drags preserve the pin; changing maps clears it.
+World bounds, center, and scale appear only in the debug-only left-panel footer.
+Selected voxels have bright cube-edge outlines that never participate in terrain
+picking or camera collision. IDs are `(minX,minY,minZ,scale)` in world metres,
+not scale-dependent grid indices: `(128,128,128,64)` contains `(135,135,135)`.
+Bounds use half-open intervals. Older lattices retain their exact fractional
+corners until regenerated; values are not rounded into different cells.
+An optional version-1 `voxelInspection` inventory includes every finest XY
+partition, even meshless ones, with bounds, cell size, `.air.gz` URL and exact
+decoded-byte budget. HTTP gzip decoding is bounded and interval payloads are
+strictly validated. The optional fill reader measures solid volume against these
+finest cells; exterior air and ignored/excluded cells are not solid. Edge cells
+use their clipped volume. The compact inspector does not fetch or display fill
+data. Unpinning or changing maps removes outlines; resident LOD replacement
+never changes an existing selection.
 World retains the surface orbit and free movement. Camera left-drag rotates
 only the viewing direction at a fixed position: drag left to look left, drag up
 to look up by default. Invert vertical look reverses only Camera's vertical axis.
 Pitch is clamped short of either vertical pole so mouse look cannot flip.
 
-In Camera mode, all continuous movement (WASD, dolly, mouse/touch panning) and
-projection-conversion travel is swept against the currently resident double-sided
+In Camera mode, all continuous movement (WASD, dolly, mouse/touch panning)
+is swept against the currently resident double-sided
 3D surface before rendering. A center-ray sweep stops 0.25 m before the nearest
 floor, ceiling or wall, including travel longer than thin barriers. Direction and
 look-target distance are preserved when translation is shortened. Cutaway and
@@ -340,7 +390,7 @@ This is not the game's player capsule or exact collision union: coarse occupied
 surfaces can close real passages, exposed cube LOD seams also collide,
 and absent extraction geometry cannot block movement. Collision raycasts use
 the existing morph-aware picking geometry during triangle transitions.
-Clicking the map enables continuous WASD movement in both projections. In World
+Clicking the map enables continuous WASD movement. In World
 mode, W/S pan along camera yaw in the native X/Y plane and A/D strafe in that
 same plane. Altitude (native Z), pitch, zoom, field of view and near plane stay
 unchanged with WASD alone. Space raises the camera along world height (native Z)
@@ -357,15 +407,9 @@ center-ray surface distance when movement starts, falling back to the look
 target, at 40% of that distance per second clamped to 2–2000 m/s before Shift.
 Frame elapsed time is capped at 50 ms to prevent a jump after a stalled frame.
 Inputs are ignored in form controls/editable text and with Ctrl/Alt/Meta.
-Focus loss, hidden pages, camera restore, presets, map changes and projection
-changes stop movement. In Camera mode, orthographic W/S changes physical camera depth, not zoom;
-wheel/pinch still controls apparent orthographic magnification.
+Focus loss, hidden pages, camera restore, presets and map changes stop movement.
 Wheel and middle-drag physically dolly along the center ray, using the visible
 resident collision skin there as the distance reference.
-In Orthographic, wheel/middle-drag/pinch instead change the orthographic zoom
-without translating the camera. Picking and triangle LOD error use orthographic
-world-units-per-pixel; cubic refinement uses focus distance and visible view span
-so zoom can request nearby detail despite the elevated camera position.
 Movement is exponential in normalized wheel pixels (line/page deltas are
 converted), so speed scales with distance to the landscape, not the old
 map-center target. Travel has a minimum rate of 1 m per 100 normalized wheel

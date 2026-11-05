@@ -9,10 +9,10 @@ test('renderer preserves distant cube depth precision without sacrificing close 
     assert.match(viewer, /new THREE\.WebGLRenderer\(\{[^}]*logarithmicDepthBuffer: true/);
 });
 
-test('movement modes, middle-click toggle, upright default and persistent cursor label are wired', () => {
+test('movement modes, middle-click toggle, upright default and compact coordinates are wired', () => {
     assert.match(html, /value="world" selected>World/);
     assert.match(html, /id="camera-invert-y" type="checkbox" \/>/);
-    assert.match(html, /id="movement-mode-status">Movement mode: World/);
+    assert.match(html, /id="camera-details">ARK:/);
     assert.match(html, /id="cursor-details">Cursor:/);
     assert.ok(!viewer.includes("el('coordinates').textContent"));
     assert.match(viewer, /const toggleMovement = event.button === 1/);
@@ -49,13 +49,12 @@ test('Space and C share continuous movement, input guards and key-release handli
     assert.match(html, /Space: up · C: down/);
 });
 
-test('perspective north-up defaults, projection selector and accessible panel toggle are wired', () => {
-    assert.match(html, /value="orthographic">Orthographic/);
-    assert.match(html, /value="perspective" selected>Perspective/);
+test('perspective-only north-up camera and accessible panel toggle are wired', () => {
+    assert.doesNotMatch(html, /camera-projection|orthographic/i);
+    assert.doesNotMatch(viewer, /setProjection|changeProjection|orthographic/i);
     assert.match(html, /id="panel-toggle"[^>]+aria-controls="control-panel"[^>]+aria-expanded="true"/);
     assert.match(viewer, /private camera: MapCamera = new THREE.PerspectiveCamera/);
     assert.match(viewer, /this.home\(true\);/);
-    assert.match(viewer, /this.controls.object = this.camera/);
     assert.match(viewer, /fitMapCamera\(this.camera/);
     assert.match(html, /X Y Z Yaw Pitch/);
     assert.ok(!viewer.includes('World XYZ (cm): ${point.x},'));
@@ -118,6 +117,35 @@ test('panel diagnostics are debug-only without hiding actionable failures', () =
     }
     assert.match(viewer, /!status.retry && this.worldModel.meshes.length > 0/);
     assert.match(viewer, /classList.toggle\('show-debug', checked\('debug-toggle'\)\)/);
+});
+
+test('clicking the pinned voxel unpins while other voxel clicks replace the selection', () => {
+    for (const id of ['debug-inspection-details', 'debug-unpin'])
+        assert.match(html, new RegExp(`id="${id}"`));
+    assert.match(html, /id="debug-unpin" type="button" hidden[^>]*>Unpin/);
+    assert.match(viewer, /this\.worldModel\.cubeSizeCm\(ground\.object\)/);
+    assert.match(viewer, /voxelAt\(world, normal, this\.worldModelManifest\.bounds, pinned\.sizeCm\)\.tuple === pinned\.tuple/);
+    assert.match(viewer, /this\.pinnedDebug = unpin \? undefined : this\.hoverDebug/);
+    assert.match(viewer, /if \(!unpin && voxel\) this\.pinVoxel\(voxel\)/);
+    assert.match(viewer, /this\.pinnedDebug \?\? this\.hoverDebug/);
+    assert.match(viewer, /new THREE\.EdgesGeometry\(box\)/);
+    assert.match(viewer, /outline\.raycast = \(\) => \{\}/);
+    assert.match(viewer, /el\('debug-unpin'\)\.addEventListener\('click'/);
+    const loading = viewer.slice(viewer.indexOf('private async load('), viewer.indexOf('private async load(') + 600);
+    assert.match(loading, /this\.pinnedDebug = undefined/);
+});
+
+test('camera and cursor coordinates share a compact readout with debug-only diagnostics', () => {
+    assert.match(html, /id="coordinates"[^>]+aria-label="Terrain inspection"/);
+    assert.match(html, /id="debug-panel" data-debug/);
+    assert.match(html, /id="world-dimensions" data-debug/);
+    assert.ok(html.indexOf('id="world-dimensions"') > html.indexOf('id="debug-toggle"'));
+    assert.ok(html.indexOf('id="world-dimensions"') < html.indexOf('</aside>'));
+    assert.match(viewer, /'Pinned' : 'Cursor'/);
+    assert.match(viewer, /\\nVoxel: \$\{voxel\.tuple\.slice\(1, -1\)\}m/);
+    assert.match(viewer, /\\nCanvas:/);
+    assert.doesNotMatch(viewer, /Solid fill:|Under cursor:|Min XYZ \(m\):|Max XYZ \(m\):/);
+    assert.match(viewer, /World:\\nBounds:\\n {2}X:/);
 });
 
 test('near and far cube sliders share resolution limits and send the changed control to linked sizing', () => {

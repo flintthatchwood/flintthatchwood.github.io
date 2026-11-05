@@ -10,7 +10,63 @@ import {
     type WorldModelManifest,
     type WorldModelStatus,
 } from '../src/world-model.js';
-import { attachWorldMorph, cubeSizeFactors, morphWeight } from '../src/progressive-world.js';
+import { attachWorldMorph, cubeSizeFactors, morphWeight, ProgressiveWorld } from '../src/progressive-world.js';
+
+test('adaptive shrink coarsens progressively even when one sibling group cannot meet the new target', async () => {
+    const nodes = [0, 1].flatMap(root => {
+        const bounds = { minX: root * 200, maxX: (root + 1) * 200, minY: 0, maxY: 200, minZ: 0, maxZ: 200 };
+        const node = (id: string, b: typeof bounds, triangles: number, size: number, children: string[] = []) => ({
+            id, bounds: b, children,
+            lods: [{ url: `${id}.awm`, vertices: 3, triangles, cubeSizeCm: size, maxErrorCm: size }],
+        });
+        return [
+            node(`r${root}`, bounds, 1, 200, [`a${root}`, `b${root}`]),
+            node(`a${root}`, { ...bounds, maxX: bounds.minX + 100 }, 140_000, 100),
+            node(`b${root}`, { ...bounds, minX: bounds.minX + 100 }, 140_000, 100),
+        ];
+    });
+    const manifest: WorldModelManifest = {
+        version: 1, mapKey: 'Island', meshFormat: 'awm1', heightUnits: 'centimeters',
+        cellSizeCm: 100, tileSizeCm: 200, maxErrorCm: 200,
+        bounds: { ...nodes[0].bounds, maxX: 400 }, warnings: [],
+        statistics: { hierarchyVersion: 3 }, roots: ['r0', 'r1'], tiles: nodes,
+    };
+    const request: typeof fetch = async url => {
+        const node = nodes.find(n => new URL(String(url)).pathname === `/${n.id}.awm`)!;
+        const count = node.lods[0].triangles, data = new ArrayBuffer(52 + count * 13), view = new DataView(data);
+        [0x314d5741, 3, count, 0].forEach((value, i) => view.setUint32(i * 4, value, true));
+        [node.bounds.minX, 0, 0, node.bounds.maxX, 0, 0, node.bounds.minX, 200, 0]
+            .forEach((value, i) => view.setFloat32(16 + i * 4, value, true));
+        for (let i = 0; i < count; i++) {
+            view.setUint32(52 + i * 12 + 4, 1, true);
+            view.setUint32(52 + i * 12 + 8, 2, true);
+        }
+        return new Response(data);
+    };
+    const material = new THREE.MeshBasicMaterial(), time = { value: 1 };
+    const world = new ProgressiveWorld(manifest, {
+        url: 'https://test.invalid/cubes.json', centerX: 0, centerY: 0, mapBounds: manifest.bounds,
+    }, request, new THREE.Group(), geometry => new THREE.Mesh(geometry, material), time, () => undefined);
+    const view = new THREE.PerspectiveCamera(90, 1, .1, 10000);
+    view.position.set(2, 10, 1);
+    view.lookAt(2, 0, 1);
+    world.start();
+    await until(() => world.meshes.length === 2);
+    world.update(view, 800, 1);
+    await until(() => world.meshes.length === 3);
+    world.update(view, 800, 1);
+    await until(() => world.meshes.length === 4);
+    for (let i = 0; i < 721; i++) {
+        time.value += .03;
+        world.animate();
+    }
+    world.update(view, 800, 1);
+    await until(() => world.meshes.length === 3);
+    world.update(view, 800, 1);
+    await until(() => world.meshes.length === 2);
+    world.clear();
+    material.dispose();
+});
 
 const box = { minX: 0, minY: 0, minZ: 100, maxX: 100, maxY: 100, maxZ: 100 };
 function fixture(): WorldModelManifest {
@@ -102,28 +158,24 @@ function camera(height: number) {
     return c;
 }
 
-test('orthographic zoom streams triangle children and retains complete coverage during swaps', async () => {
+test('perspective dolly streams triangle children and retains complete coverage during swaps', async () => {
     const request: typeof fetch = async (url) =>
         String(url).endsWith('.json')
             ? new Response(JSON.stringify(fixture()))
             : new Response(binary(new URL(String(url)).pathname.slice(1, -4)));
     const layer = new WorldModelLayer(() => undefined, request);
-    const view = new THREE.OrthographicCamera(-1000, 1000, 1000, -1000, 0.01, 1000000);
-    view.position.set(0.5, 10000, 0.5);
-    view.lookAt(0.5, 1, 0.5);
+    const view = camera(10000);
     await layer.enable(context);
     await until(() => layer.meshes.length === 1);
     layer.animate(1000);
     layer.update(view, new THREE.Vector3(0.5, 1, 0.5), 800);
     assert.equal(layer.meshes.length, 1);
-    view.zoom = 1000;
-    view.updateProjectionMatrix();
+    view.position.y = 2;
     layer.update(view, new THREE.Vector3(0.5, 1, 0.5), 800);
     assert.equal(layer.meshes.length, 1, 'Parent stays visible while children load.');
     await until(() => layer.meshes.length === 2);
     layer.animate(1500);
-    view.zoom = 1;
-    view.updateProjectionMatrix();
+    view.position.y = 10000;
     layer.update(view, new THREE.Vector3(0.5, 1, 0.5), 800);
     assert.equal(layer.meshes.length, 2, 'Children stay visible while parent loads.');
     let time = 2000;
@@ -252,6 +304,64 @@ function cubeBinary(id: string): ArrayBuffer {
     for (let i = 0; i < 9; i++) v.setFloat32(16 + i * 4, v.getFloat32(16 + i * 4, true) * 8, true);
     return bytes;
 }
+
+test('spatial cube roots can stack vertically but cannot overlap in volume', () => {
+    const m = cubeFixture();
+    m.statistics.partitionDimensions = 3;
+    m.bounds = { ...m.bounds, minZ: 0, maxZ: 1600 };
+    m.roots = ['a', 'b'];
+    m.tiles = m.tiles.filter(t => t.id !== 'root');
+    m.tiles[0].bounds = { ...m.bounds, maxZ: 800 };
+    m.tiles[1].bounds = { ...m.bounds, minZ: 800 };
+    assert.equal(validateWorldModel(m, 'Island').roots!.length, 2);
+    m.tiles[1].bounds.minZ = 799;
+    assert.throws(() => validateWorldModel(m, 'Island'), /Overlapping complete-base/);
+});
+
+test('packed mesh descriptors require safe paired ranges and the bundle extension', () => {
+    const m = cubeFixture();
+    const lod = m.tiles[0].lods[0];
+    lod.url = 'packed.awmb';
+    lod.byteOffset = 0;
+    lod.byteLength = 100;
+    assert.equal(validateWorldModel(m, 'Island').tiles[0].lods[0].byteLength, 100);
+    for (const change of [
+        () => { lod.byteOffset = undefined; },
+        () => { lod.byteOffset = -1; },
+        () => { lod.byteOffset = Number.MAX_SAFE_INTEGER; },
+        () => { lod.url = 'not-a-bundle.awm.gz'; },
+    ]) {
+        lod.byteOffset = 0;
+        lod.url = 'packed.awmb';
+        change();
+        assert.throws(() => validateWorldModel(m, 'Island'));
+    }
+});
+
+test('mesh inspection reports resident one- and four-metre blocks, not requested sizes or retired meshes', async () => {
+    for (const size of [100, 400]) {
+        const m = cubeFixture();
+        m.cellSizeCm = size;
+        for (const node of m.tiles) node.lods[0].cubeSizeCm = node.id === 'root' ? size * 2 : size;
+        const request: typeof fetch = async url => String(url).endsWith('.json')
+            ? new Response(JSON.stringify(m))
+            : new Response(cubeBinary(new URL(String(url)).pathname.slice(1, -4)));
+        const layer = new WorldModelLayer(() => undefined, request);
+        await layer.enable({ ...context, mapBounds: m.bounds });
+        await until(() => layer.meshes.length === 1);
+        const root = layer.meshes[0];
+        assert.equal(layer.cubeSizeCm(root), size * 2);
+        assert.equal(layer.cubeSizeCm(new THREE.Mesh()), undefined);
+        layer.animate(1000);
+        layer.update(camera(10), new THREE.Vector3(), 800);
+        await until(() => layer.meshes.length === 2);
+        assert.equal(layer.cubeSizeCm(root), undefined);
+        for (const mesh of layer.meshes) assert.equal(layer.cubeSizeCm(mesh), size);
+        const child = layer.meshes[0];
+        layer.clear();
+        assert.equal(layer.cubeSizeCm(child), undefined);
+    }
+});
 
 test('one- and two-metre cube hierarchies accept local bases and content-addressed Azure refinements', () => {
     for (const size of [100, 200]) {

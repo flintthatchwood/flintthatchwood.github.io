@@ -178,23 +178,33 @@
                 font-size: 12px;
                 line-height: 1.6;
             }
-            #coordinates,
-            #debug-panel {
+            #coordinates {
                 position: fixed;
                 right: 16px;
                 bottom: 16px;
-                white-space: pre-line;
                 background: #13212def;
                 padding: 12px;
                 border-radius: 8px;
                 font:
                     12px ui-monospace,
                     monospace;
-                pointer-events: none;
+                max-width: calc(100vw - 32px);
+                overflow-wrap: anywhere;
+                pointer-events: auto;
             }
-            #debug-panel {
-                bottom: 170px;
-                max-width: 45vw;
+            #world-dimensions {
+                white-space: pre-wrap;
+                font: 12px ui-monospace, monospace;
+            }
+            #camera-details,
+            #debug-inspection-details {
+                white-space: pre-line;
+            }
+            #cursor-details {
+                margin-top: 12px;
+            }
+            #debug-unpin {
+                margin-top: 8px;
             }
             #loading,
             #error {
@@ -233,11 +243,7 @@
                     max-height: 65dvh;
                 }
                 #coordinates {
-                    font-size: 10px;
                     max-width: 95vw;
-                }
-                #debug-panel {
-                    max-width: 90vw;
                 }
             }
         </style>
@@ -265,13 +271,6 @@
             <div class="buttons">
                 <button id="top">Top-down</button><button id="home">Oblique</button>
             </div>
-            <label>
-                Camera projection
-                <select id="camera-projection">
-                    <option value="orthographic">Orthographic</option>
-                    <option value="perspective" selected>Perspective</option>
-                </select>
-            </label>
             <label>
                 Movement mode
                 <select id="movement-mode">
@@ -373,18 +372,21 @@
             <div id="resource-details" aria-live="polite">No resource selected.</div>
             <hr />
             <p class="note">
-                Left drag: orbit the pressed surface · Right drag: pan · Scroll: orthographic zoom /
-                perspective dolly<br />Middle click: World / Camera · Middle drag: dolly<br />WASD: World pan / Camera flight · Shift: faster<br />Space: up · C: down<br />Touch: one finger orbits; two pan /
-                zoom
+                Left drag: orbit the pressed surface · Right drag: pan · Scroll: dolly<br />Middle click: World / Camera · Middle drag: dolly<br />WASD: World pan / Camera flight · Shift: faster<br />Space: up · C: down<br />Touch: one finger orbits; two pan /
+                dolly
             </p>
             <label><input id="debug-toggle" type="checkbox" />Show debug</label>
+            <div id="world-dimensions" data-debug></div>
         </aside>
-        <div id="coordinates">
-            <div id="movement-mode-status">Movement mode: World</div>
+        <div id="coordinates" role="region" aria-label="Terrain inspection">
+            <div id="camera-details">ARK: —&#10;CCC: —</div>
             <div id="cursor-details">Cursor: —</div>
+            <div id="debug-panel" data-debug>
+                <div id="debug-inspection-details"></div>
+                <button id="debug-unpin" type="button" hidden title="Unpin the selected voxel">Unpin</button>
+            </div>
             <div id="camera-collision-status" role="status"></div>
         </div>
-        <div id="debug-panel" hidden></div>
         <div id="terrain-context-menu" popover="auto" role="menu" aria-label="Terrain point" aria-describedby="terrain-point-coordinates">
             <button id="terrain-point-copy" type="button" role="menuitem" disabled>Copy CCC</button>
             <div id="terrain-point-coordinates"></div>
