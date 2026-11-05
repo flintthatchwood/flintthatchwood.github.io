@@ -24362,19 +24362,19 @@
       a.maxZ = Math.max(a.maxZ, b.maxZ);
     }
   }
-  function calcBBox(node) {
-    node.minX = Infinity;
-    node.minY = Infinity;
-    node.minZ = Infinity;
-    node.maxX = -Infinity;
-    node.maxY = -Infinity;
-    node.maxZ = -Infinity;
-    for (const child of node.children) {
-      extend(node, child);
+  function calcBBox(node2) {
+    node2.minX = Infinity;
+    node2.minY = Infinity;
+    node2.minZ = Infinity;
+    node2.maxX = -Infinity;
+    node2.maxY = -Infinity;
+    node2.maxZ = -Infinity;
+    for (const child of node2.children) {
+      extend(node2, child);
     }
   }
   function createNode(children) {
-    const node = {
+    const node2 = {
       children,
       height: 1,
       leaf: true,
@@ -24386,10 +24386,10 @@
       maxZ: -Infinity
     };
     if (children.length === 0) {
-      return node;
+      return node2;
     }
-    calcBBox(node);
-    return node;
+    calcBBox(node2);
+    return node2;
   }
   function intersects2(a, b) {
     return b.minX <= a.maxX && b.minY <= a.maxY && b.minZ <= a.maxZ && b.maxX >= a.minX && b.maxY >= a.minY && b.maxZ >= a.minZ;
@@ -24414,10 +24414,10 @@
       const result = [];
       if (!intersects2(bbox, this.data)) return result;
       const nodesToSearch = [];
-      let node = this.data;
-      while (node) {
-        const children = node.children;
-        const isLeaf = node.leaf;
+      let node2 = this.data;
+      while (node2) {
+        const children = node2.children;
+        const isLeaf = node2.leaf;
         for (let i = 0; i < children.length; i++) {
           const child = children[i];
           if (isLeaf) {
@@ -24432,7 +24432,7 @@
             }
           }
         }
-        node = nodesToSearch.pop();
+        node2 = nodesToSearch.pop();
       }
       return result;
     }
@@ -24474,9 +24474,9 @@
         height = Math.ceil(Math.log(N) / Math.log(M));
         M = Math.ceil(N / Math.pow(M, height - 1));
       }
-      const node = createNode([]);
-      node.leaf = false;
-      node.height = height;
+      const node2 = createNode([]);
+      node2.leaf = false;
+      node2.height = height;
       const N3 = Math.ceil(N / M);
       const N2 = N3 * Math.ceil(Math.sqrt(M));
       this.multiSelect(items, left, right, N2, compareMinX);
@@ -24486,11 +24486,11 @@
         for (let j = i; j <= right2; j += N3) {
           const right3 = Math.min(j + N3 - 1, right2);
           this.multiSelect(items, j, right3, 1, compareMinZ);
-          node.children.push(this.build(items, j, right3, height - 1));
+          node2.children.push(this.build(items, j, right3, height - 1));
         }
       }
-      calcBBox(node);
-      return node;
+      calcBBox(node2);
+      return node2;
     }
     multiSelect(arr, left, right, n, compare) {
       const stack = [left, right];
@@ -25080,6 +25080,23 @@
   };
 
   // src/world-mesh-fetch.ts
+  function cubeMeshCounts(bytes) {
+    if (bytes.byteLength < 16) throw new Error("Truncated implicit cube header.");
+    const view = new DataView(bytes), vertices = view.getUint32(4, true), triangles = view.getUint32(8, true);
+    if (view.getUint32(0, true) !== 827152193 || view.getUint32(12, true) !== 0 || (triangles === 0 ? vertices !== 0 : vertices < 3) || bytes.byteLength !== 16 + vertices * 12 + triangles * 13 || bytes.byteLength > WORLD_TILE_BYTES)
+      throw new Error("Invalid implicit cube counts or decoded length.");
+    return { vertices, triangles };
+  }
+  async function implicitMeshBytes(request, url, signal) {
+    const response = await request(url, { signal });
+    if (response.status !== 200) {
+      await response.body?.cancel();
+      throw new Error(`Implicit cube: HTTP ${response.status}; a complete chunk is required, including empty chunks.`);
+    }
+    const bytes = await boundedResponse(response, WORLD_TILE_BYTES, signal, "Implicit cube");
+    cubeMeshCounts(bytes);
+    return bytes;
+  }
   async function worldMeshBytes(request, url, lod, signal) {
     const ranged = lod.byteOffset !== void 0 && lod.byteLength !== void 0;
     const end = ranged ? lod.byteOffset + lod.byteLength - 1 : 0;
@@ -25115,8 +25132,83 @@
     return decoded;
   }
 
+  // src/cube-grid.ts
+  function cubeGridCoordinates(id) {
+    const match = /^c(\d+)_(-?\d+)_(-?\d+)_(-?\d+)$/.exec(id);
+    if (!match) throw new Error("Invalid implicit cube ID.");
+    const [level, x, y, z] = match.slice(1).map(Number);
+    if (![level, x, y, z].every(Number.isSafeInteger) || level > 6 || id !== `c${level}_${x}_${y}_${z}`)
+      throw new Error("Noncanonical implicit cube ID.");
+    return [level, x, y, z];
+  }
+  function node(manifest, level, x, y, z) {
+    const span = manifest.tileSizeCm * 2 ** level, b = manifest.bounds;
+    const box = {
+      minX: Math.max(b.minX, x * span),
+      maxX: Math.min(b.maxX, (x + 1) * span),
+      minY: Math.max(b.minY, y * span),
+      maxY: Math.min(b.maxY, (y + 1) * span),
+      minZ: Math.max(b.minZ, z * span),
+      maxZ: Math.min(b.maxZ, (z + 1) * span)
+    };
+    if (box.minX >= box.maxX || box.minY >= box.maxY || box.minZ >= box.maxZ) return;
+    const size = manifest.cellSizeCm * 2 ** level;
+    return {
+      id: `c${level}_${x}_${y}_${z}`,
+      bounds: box,
+      lods: [
+        {
+          url: "",
+          vertices: 0,
+          triangles: 0,
+          maxErrorCm: size * Math.sqrt(3),
+          cubeSizeCm: size,
+          discovered: false
+        }
+      ]
+    };
+  }
+  function cubeGridChildren(manifest, parent) {
+    const [level, x, y, z] = cubeGridCoordinates(parent.id);
+    if (!level) return [];
+    const children = [];
+    for (let dz = 0; dz < 2; dz++)
+      for (let dy = 0; dy < 2; dy++)
+        for (let dx = 0; dx < 2; dx++) {
+          const child = node(manifest, level - 1, x * 2 + dx, y * 2 + dy, z * 2 + dz);
+          if (child) children.push(child);
+        }
+    return children;
+  }
+  function cubeGridRoots(manifest) {
+    const level = manifest.grid.maxLevel, span = manifest.tileSizeCm * 2 ** level, b = manifest.bounds;
+    const roots = [];
+    const count = (size) => [b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ].reduce(
+      (product, extent) => product * (Math.ceil(extent / size) + 1),
+      1
+    );
+    if (count(span) > 512 || count(manifest.tileSizeCm) > 2e6)
+      throw new Error("Implicit cube grid exceeds supported coverage.");
+    for (let z = Math.floor(b.minZ / span); z < Math.ceil(b.maxZ / span); z++)
+      for (let y = Math.floor(b.minY / span); y < Math.ceil(b.maxY / span); y++)
+        for (let x = Math.floor(b.minX / span); x < Math.ceil(b.maxX / span); x++)
+          roots.push(node(manifest, level, x, y, z));
+    return roots;
+  }
+  async function cubeGridUrl(grid, id, manifestUrl) {
+    cubeGridCoordinates(id);
+    const input2 = new TextEncoder().encode(`${grid.meshHash}
+${grid.processorVersion}
+${id}`);
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", input2));
+    const name = [...hash].map((byte) => byte.toString(16).padStart(2, "0")).join("") + ".awm.gz";
+    return new URL(name, new URL(grid.blobRoot, manifestUrl)).href;
+  }
+
   // src/progressive-world.ts
   var MORPH_SECONDS = 0.25;
+  var TerrainBudgetBlocked = class extends Error {
+  };
   function cubeSizeFactors(near, far, changed) {
     const factors = [1, 2, 4, 8, 16, 32, 64];
     if (!factors.includes(near)) throw new Error("Invalid near cube size factor.");
@@ -25191,10 +25283,12 @@ vec3 worldMorphPosition() {
       this.selectionMs = 0;
       this.cubeSizes = { near: 1, far: 4 };
       this.budgetLimited = false;
-      this.nodes = new Map(manifest.tiles.map((node) => [node.id, node]));
+      this.buffers = /* @__PURE__ */ new Map();
+      this.bufferBytes = 0;
+      this.nodes = new Map(manifest.tiles.map((node2) => [node2.id, node2]));
       this.budget = new TerrainBudget(manifest.roots.reduce((sum, id) => sum + this.nodes.get(id).lods[0].triangles, 0));
-      for (const node of manifest.tiles)
-        for (const child of node.children ?? []) this.parents.set(child, node);
+      for (const node2 of manifest.tiles)
+        for (const child of node2.children ?? []) this.parents.set(child, node2);
     }
     get cubes() {
       return this.manifest.statistics.hierarchyVersion === 3;
@@ -25235,6 +25329,8 @@ vec3 worldMorphPosition() {
         }
       }
       this.active.clear();
+      this.buffers.clear();
+      this.bufferBytes = 0;
     }
     retry() {
       this.failed.clear();
@@ -25259,8 +25355,8 @@ vec3 worldMorphPosition() {
       );
       const cubes = this.cubes;
       const focusRay = new Ray(camera.position, camera.getWorldDirection(new Vector3()));
-      const error = (node) => {
-        const b = node.bounds;
+      const error = (node2) => {
+        const b = node2.bounds;
         const box = new Box3(
           new Vector3(
             (b.minX - this.context.centerX) / 100,
@@ -25277,11 +25373,21 @@ vec3 worldMorphPosition() {
         if (cubes && visible) {
           const distance = box.distanceToPoint(camera.position);
           const target = this.manifest.cellSizeCm * (distance < 750 ? this.cubeSizes.near : this.cubeSizes.far);
-          return node.lods[0].cubeSizeCm > target ? 3 + node.lods[0].cubeSizeCm / target * (focusRay.intersectsBox(box) ? 16 : 1) / (1 + distance / 128) : 0.5;
+          return node2.lods[0].cubeSizeCm > target ? 3 + node2.lods[0].cubeSizeCm / target * (focusRay.intersectsBox(box) ? 16 : 1) / (1 + distance / 128) : 0.5;
         }
-        return visible ? node.lods[0].maxErrorCm / 100 * Math.max(1, exaggeration) / worldUnitsPerPixel(camera, height, Math.max(1, box.distanceToPoint(camera.position))) : 0;
+        return visible ? node2.lods[0].maxErrorCm / 100 * Math.max(1, exaggeration) / worldUnitsPerPixel(camera, height, Math.max(1, box.distanceToPoint(camera.position))) : 0;
       };
       const current = [...this.active.values()];
+      if (this.manifest.grid)
+        for (const patch of current) {
+          if (patch.node.children !== void 0) continue;
+          const children = cubeGridChildren(this.manifest, patch.node);
+          patch.node.children = children.map((child) => child.id);
+          for (const child of children) {
+            if (!this.nodes.has(child.id)) this.nodes.set(child.id, child);
+            this.parents.set(child.id, patch.node);
+          }
+        }
       const refine = current.filter(
         (p) => p.readyAt <= this.time.value && p.node.children?.length && !this.failed.has(p.node.id)
       ).map((p) => ({ patch: p, error: error(p.node) })).filter((p) => p.error > 2).sort((a, b) => b.error - a.error || a.patch.node.id.localeCompare(b.patch.node.id));
@@ -25294,7 +25400,7 @@ vec3 worldMorphPosition() {
         (parent) => !this.failed.has(parent.id) && parent.children.every(
           (id) => (this.active.get(id)?.readyAt ?? Infinity) <= this.time.value
         )
-      ).map((node) => ({ node, error: error(node) })).sort((a, b) => a.error - b.error);
+      ).map((node2) => ({ node: node2, error: error(node2) })).sort((a, b) => a.error - b.error);
       const overBudget = cubes && current.reduce((sum, p) => sum + p.node.lods[0].triangles, 0) > this.budget.triangles;
       const cheap = coarsen.find((p) => p.error < 1 || overBudget);
       this.budgetLimited = false;
@@ -25302,19 +25408,19 @@ vec3 worldMorphPosition() {
         this.replace(cheap.node.children, [cheap.node], true);
       else {
         for (const candidate of refine) {
-          const node = candidate.patch.node;
-          const children = node.children.map((id) => this.nodes.get(id));
-          if (this.fits([node.id], children)) {
-            this.replace([node.id], children, false);
+          const node2 = candidate.patch.node;
+          const children = node2.children.map((id) => this.nodes.get(id));
+          if (this.fits([node2.id], children)) {
+            this.replace([node2.id], children, false);
             break;
           }
           this.budgetLimited = true;
           const reclaimed = [];
           let reclaim;
           for (const parent of coarsen) {
-            if (parent.error >= candidate.error * 0.5 || parent.node.children.includes(node.id) || !this.fits(parent.node.children, [parent.node], reclaimed)) continue;
+            if (parent.error >= candidate.error * 0.5 || parent.node.children.includes(node2.id) || !this.fits(parent.node.children, [parent.node], reclaimed)) continue;
             reclaimed.push(parent.node);
-            if (this.fits([node.id], children, reclaimed)) {
+            if (this.fits([node2.id], children, reclaimed)) {
               reclaim = reclaimed[0];
               break;
             }
@@ -25330,22 +25436,22 @@ vec3 worldMorphPosition() {
     }
     fits(remove, add, coarsened = []) {
       let triangles = 0, bytes = 0;
-      const replaced = new Set(coarsened.flatMap((node) => node.children));
+      const replaced = new Set(coarsened.flatMap((node2) => node2.children));
       for (const p of this.active.values()) {
         if (replaced.has(p.node.id)) continue;
         bytes += worldGeometryBytes(p.node.lods[0]);
         if (!remove.includes(p.node.id)) triangles += p.node.lods[0].triangles;
       }
-      for (const node of coarsened) {
-        bytes += worldGeometryBytes(node.lods[0]);
-        if (!remove.includes(node.id)) triangles += node.lods[0].triangles;
+      for (const node2 of coarsened) {
+        bytes += worldGeometryBytes(node2.lods[0]);
+        if (!remove.includes(node2.id)) triangles += node2.lods[0].triangles;
       }
-      for (const node of add) {
-        triangles += node.lods[0].triangles;
-        bytes += worldGeometryBytes(node.lods[0]);
+      for (const node2 of add) {
+        triangles += node2.lods[0].triangles;
+        bytes += worldGeometryBytes(node2.lods[0]);
       }
       const currentTriangles = [...this.active.values()].reduce((sum, p) => sum + p.node.lods[0].triangles, 0);
-      const coarsening = add.every((node) => node.children?.every((id) => remove.includes(id)));
+      const coarsening = add.every((node2) => node2.children?.every((id) => remove.includes(id)));
       const triangleLimit = this.cubes ? Math.max(this.budget.triangles, coarsening ? currentTriangles - 1 : 0) : WORLD_TRIANGLES;
       return triangles <= triangleLimit && bytes <= WORLD_RESIDENT_BYTES;
     }
@@ -25361,10 +25467,42 @@ vec3 worldMorphPosition() {
       this.transaction = tx;
       this.emit();
       let cursor = 0;
+      const discover = async () => {
+        const grid = this.manifest.grid;
+        if (!grid) return;
+        for (const node2 of nodes) {
+          const lod = node2.lods[0];
+          if (lod.discovered !== false) continue;
+          lod.url = await cubeGridUrl(grid, node2.id, this.context.url);
+          tx.controller.signal.throwIfAborted();
+          const bytes = await implicitMeshBytes(this.request, lod.url, tx.controller.signal);
+          tx.controller.signal.throwIfAborted();
+          Object.assign(lod, cubeMeshCounts(bytes), { discovered: true });
+          while (this.bufferBytes + bytes.byteLength > 32 * 1024 * 1024 && this.buffers.size) {
+            const oldest = this.buffers.keys().next().value;
+            this.bufferBytes -= this.buffers.get(oldest).byteLength;
+            this.buffers.delete(oldest);
+          }
+          this.buffers.set(node2.id, bytes);
+          this.bufferBytes += bytes.byteLength;
+        }
+        if (!remove.length && !this.initialized) {
+          if (nodes.reduce((sum, node2) => sum + node2.lods[0].triangles, 0) > WORLD_TRIANGLES)
+            throw new Error("Complete implicit cube base exceeds one million triangles.");
+        }
+        if (!this.fits(remove, nodes)) {
+          if (!this.initialized) throw new Error("Complete implicit cube base exceeds geometry memory limits.");
+          throw new TerrainBudgetBlocked();
+        }
+      };
       const load = async () => {
         while (cursor < nodes.length) {
-          const node = nodes[cursor++], descriptor = node.lods[0];
-          const bytes = await worldMeshBytes(
+          const node2 = nodes[cursor++], descriptor = node2.lods[0];
+          let bytes = this.buffers.get(node2.id);
+          if (bytes) {
+            this.buffers.delete(node2.id);
+            this.bufferBytes -= bytes.byteLength;
+          } else bytes = this.manifest.grid ? await implicitMeshBytes(this.request, descriptor.url, tx.controller.signal) : await worldMeshBytes(
             this.request,
             new URL(descriptor.url, this.context.url),
             descriptor,
@@ -25374,7 +25512,7 @@ vec3 worldMorphPosition() {
           const geometry = worldGeometry(
             bytes,
             descriptor,
-            node.bounds,
+            node2.bounds,
             this.context.centerX,
             this.context.centerY,
             this.context.mapBounds,
@@ -25382,11 +25520,11 @@ vec3 worldMorphPosition() {
             this.manifest.statistics.partitionDimensions === 3
           );
           const mesh = this.createMesh(geometry);
-          tx.loaded.set(node.id, mesh);
+          tx.loaded.set(node2.id, mesh);
           if (this.cubes && this.manifest.statistics.seamPolicy === "closed-voxel-partitions-v1")
-            tx.surfaces.set(node.id, extractCubeSurface(
+            tx.surfaces.set(node2.id, extractCubeSurface(
               geometry,
-              node,
+              node2,
               this.context.centerX,
               this.context.centerY,
               this.manifest.statistics.partitionDimensions === 3
@@ -25394,7 +25532,7 @@ vec3 worldMorphPosition() {
           if (!this.cubes) this.installPicking(mesh);
         }
       };
-      void Promise.all(Array.from({ length: Math.min(2, nodes.length) }, load)).then(() => {
+      void discover().then(() => Promise.all(Array.from({ length: Math.min(2, nodes.length) }, load))).then(() => {
         if (this.transaction !== tx || this.disposed) return;
         if (coarsening && !this.cubes) {
           tx.finishAt = this.time.value + MORPH_SECONDS;
@@ -25405,6 +25543,11 @@ vec3 worldMorphPosition() {
         tx.controller.abort();
         for (const mesh of tx.loaded.values()) mesh.geometry.dispose();
         this.transaction = void 0;
+        if (failure instanceof TerrainBudgetBlocked && this.initialized) {
+          this.budgetLimited = true;
+          this.emit();
+          return;
+        }
         for (const id of coarsening || !remove.length ? nodes.map((n) => n.id) : remove)
           this.failed.add(id);
         this.error = failure instanceof Error ? failure.message : String(failure);
@@ -25414,11 +25557,11 @@ vec3 worldMorphPosition() {
     commit(tx, morph) {
       const next = new Map(this.active);
       for (const id of tx.remove) next.delete(id);
-      for (const node of tx.nodes)
-        next.set(node.id, {
-          node,
-          mesh: tx.loaded.get(node.id),
-          surface: tx.surfaces.get(node.id),
+      for (const node2 of tx.nodes)
+        next.set(node2.id, {
+          node: node2,
+          mesh: tx.loaded.get(node2.id),
+          surface: tx.surfaces.get(node2.id),
           readyAt: this.time.value + (morph ? MORPH_SECONDS : 0)
         });
       const patches = [...next.values()].filter((p) => !!p.surface);
@@ -25448,10 +25591,10 @@ vec3 worldMorphPosition() {
         patch.mesh.geometry.dispose();
         this.active.delete(id);
       }
-      for (const node of tx.nodes) {
-        const mesh = tx.loaded.get(node.id);
+      for (const node2 of tx.nodes) {
+        const mesh = tx.loaded.get(node2.id);
         if (morph) this.transition(mesh, 1);
-        this.active.set(node.id, next.get(node.id));
+        this.active.set(node2.id, next.get(node2.id));
         this.group.add(mesh);
       }
       patches.forEach((patch, i) => {
@@ -25459,6 +25602,8 @@ vec3 worldMorphPosition() {
         if (patch.seam) this.group.add(patch.seam);
       });
       this.transaction = void 0;
+      if (!this.initialized && this.manifest.grid)
+        this.budget = new TerrainBudget(tx.nodes.reduce((sum, node2) => sum + node2.lods[0].triangles, 0));
       this.initialized = true;
       this.emit();
     }
@@ -25502,7 +25647,7 @@ vec3 worldMorphPosition() {
       );
       this.status({
         retry: !!this.error,
-        text: `${this.cubes ? "Cubes" : "Triangles"}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` + (this.cubes ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; adaptive budget ${this.budget.triangles.toLocaleString()} triangles, 96 MiB.` : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) + (!this.initialized ? " Loading complete 3D base; no surface displayed until ready." : "") + (this.transaction ? " Streaming\u2026" : "") + (this.error ? ` Patch failed: ${this.error}. ${this.initialized ? "Previous complete surface retained" : "No 3D base loaded"}; retry available.` : "")
+        text: `${this.cubes ? "Cubes" : "Triangles"}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` + (this.cubes ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; adaptive budget ${this.budget.triangles.toLocaleString()} triangles, 96 MiB.` : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) + (!this.initialized ? " Loading complete 3D base; no surface displayed until ready." : "") + (this.transaction ? " Streaming\u2026" : "") + (this.budgetLimited ? " Detail blocked by geometry budget." : "") + (this.error ? ` Patch failed: ${this.error}. ${this.initialized ? "Previous complete surface retained" : "No 3D base loaded"}; retry available.` : "")
       });
     }
   };
@@ -25738,6 +25883,29 @@ vec3 worldMorphPosition() {
     const v = object2(value2);
     const progressive = v.roots !== void 0;
     const statistics = object2(v.statistics);
+    if (v.version === 2) {
+      const grid = object2(v.grid), b2 = bounds(v.bounds);
+      const blobRoot = text(grid.blobRoot), processorVersion = text(grid.processorVersion);
+      if (v.mapKey !== mapKey || v.heightUnits !== "centimeters" || v.meshFormat !== "awm1" || v.tiles !== void 0 || v.roots !== void 0 || v.voxelInspection !== void 0 || v.cellSizeCm !== 100 || v.tileSizeCm !== 12800 || !/^[0-9a-f]{64}$/.test(text(grid.meshHash)) || !/^[\x20-\x7e]{1,128}$/.test(processorVersion) || blobRoot !== "../../blobs/managed/v1/" && !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/$/.test(blobRoot) || statistics.hierarchyVersion !== 3 || statistics.partitionDimensions !== 3 || statistics.seamPolicy !== "closed-voxel-partitions-v1" || statistics.representation !== "blocks" || statistics.complete !== true || b2.minZ >= b2.maxZ || Object.values(b2).some((value3) => value3 % 100 !== 0) || !Array.isArray(v.warnings) || !v.warnings.every((w) => typeof w === "string"))
+        throw new Error("Invalid implicit cube grid manifest.");
+      const manifest = {
+        version: 2,
+        mapKey,
+        heightUnits: "centimeters",
+        meshFormat: "awm1",
+        cellSizeCm: 100,
+        tileSizeCm: 12800,
+        maxErrorCm: number(v.maxErrorCm, 0, 1e5),
+        bounds: b2,
+        warnings: v.warnings,
+        statistics,
+        tiles: [],
+        grid: { meshHash: text(grid.meshHash), processorVersion, blobRoot, maxLevel: integer(grid.maxLevel, 0, 6) }
+      };
+      manifest.tiles = cubeGridRoots(manifest);
+      manifest.roots = manifest.tiles.map((tile) => tile.id);
+      return manifest;
+    }
     const cubes = progressive && statistics.hierarchyVersion === 3;
     const spatial = cubes && statistics.partitionDimensions === 3;
     if (cubes && statistics.partitionDimensions !== void 0 && statistics.partitionDimensions !== 2 && statistics.partitionDimensions !== 3)
@@ -25802,13 +25970,13 @@ vec3 worldMorphPosition() {
       const byId = new Map(tiles.map((tile) => [tile.id, tile]));
       const visited = /* @__PURE__ */ new Set();
       const visit = (id, parent, depth) => {
-        const node = byId.get(id);
-        if (!node || visited.has(id) || depth > 64)
+        const node2 = byId.get(id);
+        if (!node2 || visited.has(id) || depth > 64)
           throw new Error("Progressive hierarchy has missing, shared or cyclic nodes.");
-        if (parent && (node.lods[0].maxErrorCm > parent.lods[0].maxErrorCm || cubes && node.lods[0].cubeSizeCm !== parent.lods[0].cubeSizeCm / 2 || node.bounds.minX < parent.bounds.minX - 0.1 || node.bounds.maxX > parent.bounds.maxX + 0.1 || node.bounds.minY < parent.bounds.minY - 0.1 || node.bounds.maxY > parent.bounds.maxY + 0.1 || node.bounds.minZ < parent.bounds.minZ - 0.1 || node.bounds.maxZ > parent.bounds.maxZ + 0.1))
+        if (parent && (node2.lods[0].maxErrorCm > parent.lods[0].maxErrorCm || cubes && node2.lods[0].cubeSizeCm !== parent.lods[0].cubeSizeCm / 2 || node2.bounds.minX < parent.bounds.minX - 0.1 || node2.bounds.maxX > parent.bounds.maxX + 0.1 || node2.bounds.minY < parent.bounds.minY - 0.1 || node2.bounds.maxY > parent.bounds.maxY + 0.1 || node2.bounds.minZ < parent.bounds.minZ - 0.1 || node2.bounds.maxZ > parent.bounds.maxZ + 0.1))
           throw new Error("Progressive child exceeds parent bounds or error.");
         visited.add(id);
-        for (const child of node.children ?? []) visit(child, node, depth + 1);
+        for (const child of node2.children ?? []) visit(child, node2, depth + 1);
       };
       for (const root of roots) visit(root, void 0, 0);
       if (visited.size !== tiles.length) throw new Error("Unreachable progressive patches.");

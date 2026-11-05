@@ -1,5 +1,26 @@
 import { boundedResponse } from './bounded-response.js';
-import { worldBinaryBytes, type WorldLod } from './world-model.js';
+import { WORLD_TILE_BYTES, worldBinaryBytes, type WorldLod } from './world-model.js';
+
+export function cubeMeshCounts(bytes: ArrayBuffer): Pick<WorldLod, 'vertices' | 'triangles'> {
+    if (bytes.byteLength < 16) throw new Error('Truncated implicit cube header.');
+    const view = new DataView(bytes), vertices = view.getUint32(4, true), triangles = view.getUint32(8, true);
+    if (view.getUint32(0, true) !== 0x314d5741 || view.getUint32(12, true) !== 0 ||
+        (triangles === 0 ? vertices !== 0 : vertices < 3) ||
+        bytes.byteLength !== 16 + vertices * 12 + triangles * 13 || bytes.byteLength > WORLD_TILE_BYTES)
+        throw new Error('Invalid implicit cube counts or decoded length.');
+    return { vertices, triangles };
+}
+
+export async function implicitMeshBytes(request: typeof fetch, url: string, signal: AbortSignal): Promise<ArrayBuffer> {
+    const response = await request(url, { signal });
+    if (response.status !== 200) {
+        await response.body?.cancel();
+        throw new Error(`Implicit cube: HTTP ${response.status}; a complete chunk is required, including empty chunks.`);
+    }
+    const bytes = await boundedResponse(response, WORLD_TILE_BYTES, signal, 'Implicit cube');
+    cubeMeshCounts(bytes);
+    return bytes;
+}
 
 export async function worldMeshBytes(
     request: typeof fetch,

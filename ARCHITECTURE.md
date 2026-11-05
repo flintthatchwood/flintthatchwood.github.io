@@ -213,13 +213,46 @@ neighbor seams without becoming visible walls. Ordinary mesh decoding rejects
 this flag unless spatial cube decoding is explicitly enabled.
 The separate finest occupancy inspection inventory remains full-height XY tiles.
 
-Spatial meshes share content-addressed `.awmb` blobs, normally around 8 MiB each.
+Legacy indexed spatial meshes can share content-addressed `.awmb` blobs, normally around 8 MiB each.
 Each LOD names its compressed member's `byteOffset` and `byteLength`.
 The viewer requires an exact HTTP 206 range response with matching
 `Content-Range` and no whole-container `Content-Encoding`, decompresses that
 independent gzip member, and checks its exact decoded mesh size.
 Chunk count and blob count are independent; legacy `.awm.gz` loading is unchanged.
 Cross-origin blob CORS must expose `Content-Range`.
+
+### Implicit cube grids
+
+Version-2 cube manifests contain map-wide bounds, grid parameters and provenance,
+not a `tiles`, `roots` or voxel-inspection cell index. Finest chunks remain 128 m
+cubes. IDs are `c<level>_<signedX>_<signedY>_<signedZ>`, anchored at Unreal world
+zero. A level's span is `tileSizeCm * 2^level`; indices use floor division,
+including negatives. Bounds are clipped against the map envelope. Roots and
+intersecting children are derived lazily rather than expanding the whole grid.
+
+The immutable filename is lowercase SHA256 of the UTF-8 bytes
+`meshHash + "\n" + processorVersion + "\n" + chunkId`, followed by `.awm.gz`.
+`meshHash` identifies the generation input and `processorVersion` identifies the
+processor recipe. This is a build-key hash, not the output payload checksum.
+The map-wide `grid.blobRoot` must be the native relative managed-blob root or a
+validated HTTPS Azure managed-blob root.
+
+Each chunk is fetched whole with normal HTTP gzip decoding; no range index or
+Range request is required. Every intersecting cell has a file. Empty cells carry
+an explicit AWM1 header with zero vertices and triangles; HTTP failures are never
+interpreted as empty terrain. Nonempty chunks retain the existing 32 MiB decoded
+limit and strict geometry checks, including ignored-space masks.
+An empty coarse chunk does not imply empty descendants: finer features can
+disappear during coarsening, so refinement still derives its children.
+
+Before a replacement, the viewer discovers actual counts from bounded chunk
+headers. A 32 MiB decoded-input cache avoids redownloading discovered chunks when
+possible. After all counts are known, selection rechecks the adaptive triangle
+and transient geometry budgets before allocating replacement geometry. If the
+group cannot fit, old coverage stays resident while selection reclaims detail or
+the adaptive target increases. Missing/corrupt chunks expose a retryable failure.
+Complete-base counts and memory are checked after discovery; an invalid base
+fails explicitly instead of displaying partial coverage.
 
 Triangle morphing takes 250 ms in the vertex shader. Per-vertex parent position and
 transition start/direction attributes are uploaded once per replacement; frame

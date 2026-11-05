@@ -4,6 +4,7 @@ import { boundedResponse } from './bounded-response.js';
 import type { CoordinateSystem } from './data/types.js';
 import { ProgressiveWorld, attachWorldMorph, cubeSizeFactors } from './progressive-world.js';
 import { validateVoxelReference, VoxelReferenceReader, type VoxelReference } from './voxel-inspection.js';
+import { cubeGridRoots, type CubeGrid } from './cube-grid.js';
 
 export const WORLD_TILE_BYTES = 32 * 1024 * 1024;
 export const WORLD_RESIDENT_BYTES = 96 * 1024 * 1024;
@@ -25,6 +26,7 @@ export interface WorldLod {
     cubeSizeCm?: number;
     byteOffset?: number;
     byteLength?: number;
+    discovered?: boolean;
 }
 export interface WorldTile {
     id: string;
@@ -33,7 +35,7 @@ export interface WorldTile {
     children?: string[];
 }
 export interface WorldModelManifest {
-    version: 1;
+    version: 1 | 2;
     mapKey: string;
     heightUnits: 'centimeters';
     meshFormat: 'awm1';
@@ -46,6 +48,7 @@ export interface WorldModelManifest {
     tiles: WorldTile[];
     roots?: string[];
     voxelInspection?: VoxelReference;
+    grid?: CubeGrid;
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -96,6 +99,31 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
     const v = object(value);
     const progressive = v.roots !== undefined;
     const statistics = object(v.statistics);
+    if (v.version === 2) {
+        const grid = object(v.grid), b = bounds(v.bounds);
+        const blobRoot = text(grid.blobRoot), processorVersion = text(grid.processorVersion);
+        if (v.mapKey !== mapKey || v.heightUnits !== 'centimeters' || v.meshFormat !== 'awm1' ||
+            v.tiles !== undefined || v.roots !== undefined || v.voxelInspection !== undefined ||
+            v.cellSizeCm !== 100 || v.tileSizeCm !== 12800 ||
+            !/^[0-9a-f]{64}$/.test(text(grid.meshHash)) || !/^[\x20-\x7e]{1,128}$/.test(processorVersion) ||
+            (blobRoot !== '../../blobs/managed/v1/' &&
+                !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/$/.test(blobRoot)) ||
+            statistics.hierarchyVersion !== 3 || statistics.partitionDimensions !== 3 ||
+            statistics.seamPolicy !== 'closed-voxel-partitions-v1' ||
+            statistics.representation !== 'blocks' || statistics.complete !== true ||
+            b.minZ >= b.maxZ || Object.values(b).some(value => value % 100 !== 0) ||
+            !Array.isArray(v.warnings) || !v.warnings.every(w => typeof w === 'string'))
+            throw new Error('Invalid implicit cube grid manifest.');
+        const manifest: WorldModelManifest = {
+            version: 2, mapKey, heightUnits: 'centimeters', meshFormat: 'awm1',
+            cellSizeCm: 100, tileSizeCm: 12800, maxErrorCm: number(v.maxErrorCm, 0, 100_000),
+            bounds: b, warnings: v.warnings, statistics, tiles: [],
+            grid: { meshHash: text(grid.meshHash), processorVersion, blobRoot, maxLevel: integer(grid.maxLevel, 0, 6) },
+        };
+        manifest.tiles = cubeGridRoots(manifest);
+        manifest.roots = manifest.tiles.map(tile => tile.id);
+        return manifest;
+    }
     const cubes = progressive && statistics.hierarchyVersion === 3;
     const spatial = cubes && statistics.partitionDimensions === 3;
     if (cubes && statistics.partitionDimensions !== undefined &&

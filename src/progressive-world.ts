@@ -13,9 +13,11 @@ import {
 } from './world-model.js';
 import type { CoordinateSystem } from './data/types.js';
 import { MAX_TERRAIN_TRIANGLES, TerrainBudget } from './terrain-budget.js';
-import { worldMeshBytes } from './world-mesh-fetch.js';
+import { cubeMeshCounts, implicitMeshBytes, worldMeshBytes } from './world-mesh-fetch.js';
+import { cubeGridChildren, cubeGridUrl } from './cube-grid.js';
 
 const MORPH_SECONDS = 0.25;
+class TerrainBudgetBlocked extends Error {}
 type MapBounds = Pick<CoordinateSystem, 'minX' | 'minY' | 'maxX' | 'maxY'>;
 interface Context {
     url: string;
@@ -122,6 +124,8 @@ export class ProgressiveWorld {
     private cubeSizes = { near: 1, far: 4 };
     private budget: TerrainBudget;
     private budgetLimited = false;
+    private buffers = new Map<string, ArrayBuffer>();
+    private bufferBytes = 0;
     private get cubes(): boolean {
         return this.manifest.statistics.hierarchyVersion === 3;
     }
@@ -175,6 +179,8 @@ export class ProgressiveWorld {
             }
         }
         this.active.clear();
+        this.buffers.clear();
+        this.bufferBytes = 0;
     }
     retry(): void {
         this.failed.clear();
@@ -228,6 +234,16 @@ export class ProgressiveWorld {
                 : 0;
         };
         const current = [...this.active.values()];
+        if (this.manifest.grid)
+            for (const patch of current) {
+                if (patch.node.children !== undefined) continue;
+                const children = cubeGridChildren(this.manifest, patch.node);
+                patch.node.children = children.map(child => child.id);
+                for (const child of children) {
+                    if (!this.nodes.has(child.id)) this.nodes.set(child.id, child);
+                    this.parents.set(child.id, patch.node);
+                }
+            }
         const refine = current
             .filter(
                 (p) =>
@@ -324,12 +340,46 @@ export class ProgressiveWorld {
         this.transaction = tx;
         this.emit();
         let cursor = 0;
+        const discover = async () => {
+            const grid = this.manifest.grid;
+            if (!grid) return;
+            for (const node of nodes) {
+                const lod = node.lods[0];
+                if (lod.discovered !== false) continue;
+                lod.url = await cubeGridUrl(grid, node.id, this.context.url);
+                tx.controller.signal.throwIfAborted();
+                const bytes = await implicitMeshBytes(this.request, lod.url, tx.controller.signal);
+                tx.controller.signal.throwIfAborted();
+                Object.assign(lod, cubeMeshCounts(bytes), { discovered: true });
+                while (this.bufferBytes + bytes.byteLength > 32 * 1024 * 1024 && this.buffers.size) {
+                    const oldest = this.buffers.keys().next().value!;
+                    this.bufferBytes -= this.buffers.get(oldest)!.byteLength;
+                    this.buffers.delete(oldest);
+                }
+                this.buffers.set(node.id, bytes);
+                this.bufferBytes += bytes.byteLength;
+            }
+            if (!remove.length && !this.initialized) {
+                if (nodes.reduce((sum, node) => sum + node.lods[0].triangles, 0) > WORLD_TRIANGLES)
+                    throw new Error('Complete implicit cube base exceeds one million triangles.');
+            }
+            if (!this.fits(remove, nodes)) {
+                if (!this.initialized) throw new Error('Complete implicit cube base exceeds geometry memory limits.');
+                throw new TerrainBudgetBlocked();
+            }
+        };
         const load = async () => {
             while (cursor < nodes.length) {
                 const node = nodes[cursor++],
                     descriptor = node.lods[0];
-                const bytes = await worldMeshBytes(this.request, new URL(descriptor.url, this.context.url),
-                    descriptor, tx.controller.signal);
+                let bytes = this.buffers.get(node.id);
+                if (bytes) {
+                    this.buffers.delete(node.id);
+                    this.bufferBytes -= bytes.byteLength;
+                } else bytes = this.manifest.grid
+                    ? await implicitMeshBytes(this.request, descriptor.url, tx.controller.signal)
+                    : await worldMeshBytes(this.request, new URL(descriptor.url, this.context.url),
+                        descriptor, tx.controller.signal);
                 tx.controller.signal.throwIfAborted();
                 const geometry = worldGeometry(
                     bytes,
@@ -351,7 +401,7 @@ export class ProgressiveWorld {
                 if (!this.cubes) this.installPicking(mesh);
             }
         };
-        void Promise.all(Array.from({ length: Math.min(2, nodes.length) }, load))
+        void discover().then(() => Promise.all(Array.from({ length: Math.min(2, nodes.length) }, load)))
             .then(() => {
                 if (this.transaction !== tx || this.disposed) return;
                 if (coarsening && !this.cubes) {
@@ -364,6 +414,11 @@ export class ProgressiveWorld {
                 tx.controller.abort();
                 for (const mesh of tx.loaded.values()) mesh.geometry.dispose();
                 this.transaction = undefined;
+                if (failure instanceof TerrainBudgetBlocked && this.initialized) {
+                    this.budgetLimited = true;
+                    this.emit();
+                    return;
+                }
                 for (const id of coarsening || !remove.length ? nodes.map((n) => n.id) : remove)
                     this.failed.add(id);
                 this.error = failure instanceof Error ? failure.message : String(failure);
@@ -419,6 +474,8 @@ export class ProgressiveWorld {
             if (patch.seam) this.group.add(patch.seam);
         });
         this.transaction = undefined;
+        if (!this.initialized && this.manifest.grid)
+            this.budget = new TerrainBudget(tx.nodes.reduce((sum, node) => sum + node.lods[0].triangles, 0));
         this.initialized = true;
         this.emit();
     }
@@ -475,6 +532,7 @@ export class ProgressiveWorld {
                     ? ' Loading complete 3D base; no surface displayed until ready.'
                     : '') +
                 (this.transaction ? ' Streaming…' : '') +
+                (this.budgetLimited ? ' Detail blocked by geometry budget.' : '') +
                 (this.error
                     ? ` Patch failed: ${this.error}. ${this.initialized ? 'Previous complete surface retained' : 'No 3D base loaded'}; retry available.`
                     : ''),
