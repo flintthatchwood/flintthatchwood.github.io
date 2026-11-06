@@ -24252,10 +24252,14 @@
       manifest.maxY,
       manifest.minZ,
       manifest.maxZ
-    ].every(Number.isFinite) || manifest.originX >= manifest.maxX || manifest.originY >= manifest.maxY || manifest.minZ >= manifest.maxZ || !Array.isArray(manifest.warnings) || !manifest.warnings.every((warning) => typeof warning === "string") || "tiles" in manifest || "spacing" in manifest || manifest.progressiveModel?.default !== void 0 && typeof manifest.progressiveModel.default !== "boolean" || [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.progressiveModel, manifest.boundaryModel].some(
+    ].every(Number.isFinite) || manifest.originX >= manifest.maxX || manifest.originY >= manifest.maxY || manifest.minZ >= manifest.maxZ || !Array.isArray(manifest.warnings) || !manifest.warnings.every((warning) => typeof warning === "string") || "tiles" in manifest || "spacing" in manifest || manifest.progressiveModel?.default !== void 0 && typeof manifest.progressiveModel.default !== "boolean" || manifest.airVolumes !== void 0 && (manifest.airVolumes === null || typeof manifest.airVolumes !== "object" || Array.isArray(manifest.airVolumes) || !manifest.airVolumes.player || !manifest.airVolumes.death) || [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.voxelModel, manifest.progressiveModel, manifest.boundaryModel, manifest.airSeals].some(
       (link) => link !== void 0 && (link === null || typeof link.url !== "string" || !link.url.trim())
     ))
       throw new Error(`Invalid 3D map metadata for ${mapKey}.`);
+    if (manifest.airVolumes && [manifest.airVolumes.player, manifest.airVolumes.death].some(
+      (link) => typeof link.url !== "string" || !link.url.trim()
+    ))
+      throw new Error(`Invalid air-volume links for ${mapKey}.`);
   }
 
   // src/flat-map.ts
@@ -24836,6 +24840,138 @@
     return positions;
   }
 
+  // src/air-seals.ts
+  var POLICY = "death-air-planar-original-rim-500cm-v1";
+  function record(value2) {
+    return typeof value2 === "object" && value2 !== null && !Array.isArray(value2);
+  }
+  function decodeAirSeals(value2) {
+    if (!record(value2) || value2.version !== 1 || value2.policy !== POLICY || value2.cellSizeCm !== 100 || value2.maximumApertureCm !== 500 || !record(value2.bounds) || !Array.isArray(value2.closed))
+      throw new Error("Invalid diagnostic air-seal metadata.");
+    const b = value2.bounds;
+    for (const axis of ["X", "Y", "Z"]) {
+      const low = b[`min${axis}`], high = b[`max${axis}`];
+      if (typeof low !== "number" || typeof high !== "number" || !Number.isSafeInteger(low / 100) || !Number.isSafeInteger(high / 100) || low >= high)
+        throw new Error("Invalid diagnostic air-seal grid bounds.");
+    }
+    const bounds2 = {
+      minX: Number(b.minX),
+      minY: Number(b.minY),
+      minZ: Number(b.minZ),
+      maxX: Number(b.maxX),
+      maxY: Number(b.maxY),
+      maxZ: Number(b.maxZ)
+    };
+    const sizes = [
+      (bounds2.maxX - bounds2.minX) / 100,
+      (bounds2.maxY - bounds2.minY) / 100,
+      (bounds2.maxZ - bounds2.minZ) / 100
+    ];
+    const seals = value2.closed.map((seal) => {
+      if (!record(seal) || typeof seal.axis !== "number" || ![0, 1, 2].includes(seal.axis) || !Array.isArray(seal.faces) || seal.faces.length === 0 || seal.faces.length > 25)
+        throw new Error("Invalid diagnostic air-seal aperture.");
+      const axis = seal.axis;
+      const faces = seal.faces.map((face) => {
+        if (!record(face)) throw new Error("Invalid diagnostic air-seal face.");
+        const coordinates2 = [face.x, face.y, face.z];
+        if (coordinates2.some((c, i) => typeof c !== "number" || !Number.isSafeInteger(c) || c < (i === axis ? 1 : 0) || c >= sizes[i]))
+          throw new Error("Diagnostic air-seal face lies outside the original grid.");
+        return { x: Number(face.x), y: Number(face.y), z: Number(face.z) };
+      });
+      const coordinates = faces.map((f) => [f.x, f.y, f.z]);
+      if (new Set(faces.map((f) => `${f.x},${f.y},${f.z}`)).size !== faces.length || sizes.some((_, i) => {
+        const values = coordinates.map((c) => c[i]);
+        return Math.max(...values) - Math.min(...values) + (i === axis ? 0 : 1) > (i === axis ? 0 : 5);
+      }))
+        throw new Error("Diagnostic air seal is not a flat aperture fitting a 5 m cube.");
+      return { axis, faces };
+    });
+    return { bounds: bounds2, seals };
+  }
+  var AirSealLayer = class {
+    constructor() {
+      this.group = new Group();
+    }
+    set(value2, centerX, centerY) {
+      const { bounds: bounds2, seals } = decodeAirSeals(value2);
+      this.clear();
+      const material = new MeshBasicMaterial({
+        color: 65280,
+        side: DoubleSide,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false
+      });
+      if (seals.length === 0) material.dispose();
+      seals.forEach((seal, index) => {
+        const positions = [];
+        const worldPoints = [];
+        for (const face of seal.faces) {
+          const base = [
+            bounds2.minX + face.x * 100,
+            bounds2.minY + face.y * 100,
+            bounds2.minZ + face.z * 100
+          ];
+          const tangents = [0, 1, 2].filter((axis) => axis !== seal.axis);
+          const corners = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([u, v]) => {
+            const p = base.slice();
+            p[tangents[0]] += u * 100;
+            p[tangents[1]] += v * 100;
+            worldPoints.push(p);
+            return [(p[0] - centerX) / 100, p[2] / 100, (p[1] - centerY) / 100];
+          });
+          for (const corner of [0, 1, 2, 0, 2, 3]) positions.push(...corners[corner]);
+        }
+        const geometry = new BufferGeometry();
+        geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+        const mesh = new Mesh(geometry, material);
+        mesh.renderOrder = 1e4;
+        const low = [0, 1, 2].map((axis) => Math.min(...worldPoints.map((p) => p[axis])));
+        const high = [0, 1, 2].map((axis) => Math.max(...worldPoints.map((p) => p[axis])));
+        mesh.userData.airSeal = `Seal ${index + 1}: ${["YZ", "XZ", "XY"][seal.axis]}
+Size: ${high.map((v, i) => (v - low[i]) / 100).join(" x ")} m
+World XYZ (cm): ${low.join(", ")} to ${high.join(", ")}
+Diagnostic only; no terrain or collision.`;
+        this.group.add(mesh);
+      });
+      return seals.length;
+    }
+    clear() {
+      const materials = /* @__PURE__ */ new Set();
+      for (const child of this.group.children) {
+        if (!(child instanceof Mesh)) continue;
+        child.geometry.dispose();
+        for (const material of Array.isArray(child.material) ? child.material : [child.material])
+          materials.add(material);
+      }
+      materials.forEach((material) => material.dispose());
+      this.group.clear();
+    }
+  };
+
+  // src/bounded-response.ts
+  async function boundedResponse(response, limit, signal, label = "Walkability") {
+    if (!response.ok) throw new Error(`${label} HTTP ${response.status}`);
+    if (!response.body) throw new Error(`${label} response has no body.`);
+    const reader = response.body.getReader();
+    const data = new Uint8Array(limit);
+    let size = 0;
+    try {
+      while (true) {
+        signal.throwIfAborted();
+        const { done, value: value2 } = await reader.read();
+        if (done) break;
+        if (size + value2.length > limit)
+          throw new Error(`${label} response exceeds expected length/budget.`);
+        data.set(value2, size);
+        size += value2.length;
+      }
+      return size === limit ? data.buffer : data.buffer.slice(0, size);
+    } finally {
+      await reader.cancel();
+    }
+  }
+
   // src/camera-view.ts
   function worldUnitsPerPixel(camera, height, distance) {
     return 2 * Math.tan(MathUtils.degToRad(camera.fov / 2)) * Math.max(0.01, distance) / (camera.zoom * Math.max(1, height));
@@ -24862,29 +24998,6 @@
     camera.position.copy(center).addScaledVector(camera.getWorldDirection(new Vector3()), -distance);
     resizeMapCamera(camera, aspect2);
     camera.updateMatrixWorld();
-  }
-
-  // src/bounded-response.ts
-  async function boundedResponse(response, limit, signal, label = "Walkability") {
-    if (!response.ok) throw new Error(`${label} HTTP ${response.status}`);
-    if (!response.body) throw new Error(`${label} response has no body.`);
-    const reader = response.body.getReader();
-    const data = new Uint8Array(limit);
-    let size = 0;
-    try {
-      while (true) {
-        signal.throwIfAborted();
-        const { done, value: value2 } = await reader.read();
-        if (done) break;
-        if (size + value2.length > limit)
-          throw new Error(`${label} response exceeds expected length/budget.`);
-        data.set(value2, size);
-        size += value2.length;
-      }
-      return size === limit ? data.buffer : data.buffer.slice(0, size);
-    } finally {
-      await reader.cancel();
-    }
   }
 
   // src/display-number.ts
@@ -25053,12 +25166,31 @@
 
   // src/terrain-budget.ts
   var MAX_TERRAIN_TRIANGLES = 4e6;
+  var WORLD_TRIANGLES = 1e6;
+  var WORLD_RESIDENT_BYTES = 96 * 1024 * 1024;
+  function worldBudget(multiplier = 1) {
+    if (![1, 2, 4, 8, 16, 32].includes(multiplier))
+      throw new Error("Terrain budget multiplier must be 1, 2, 4, 8, 16 or 32.");
+    return {
+      triangles: WORLD_TRIANGLES * multiplier,
+      bytes: WORLD_RESIDENT_BYTES * multiplier,
+      cubeTriangles: Math.max(MAX_TERRAIN_TRIANGLES, WORLD_TRIANGLES * multiplier)
+    };
+  }
   var TerrainBudget = class {
-    constructor(baseTriangles) {
+    constructor(baseTriangles, multiplier = 1) {
       this.triangles = 1e6;
       this.samples = [];
+      this.maximum = MAX_TERRAIN_TRIANGLES;
       this.minimum = Math.max(25e4, baseTriangles);
-      this.triangles = Math.max(this.triangles, this.minimum);
+      this.setMultiplier(multiplier);
+    }
+    setMultiplier(multiplier) {
+      const limits = worldBudget(multiplier);
+      this.maximum = limits.cubeTriangles;
+      this.triangles = Math.max(limits.triangles, this.minimum);
+      this.samples = [];
+      this.previous = void 0;
     }
     sample(now, needsDetail) {
       const elapsed = this.previous === void 0 ? 0 : now - this.previous;
@@ -25075,7 +25207,7 @@
       if (median > 23 || slow > 40)
         this.triangles = Math.max(this.minimum, Math.floor(this.triangles * 0.8));
       else if (needsDetail && median < 19 && slow < 25)
-        this.triangles = Math.min(MAX_TERRAIN_TRIANGLES, Math.floor(this.triangles * 1.2));
+        this.triangles = Math.min(this.maximum, Math.floor(this.triangles * 1.2));
     }
   };
 
@@ -25207,6 +25339,7 @@ ${id}`);
 
   // src/progressive-world.ts
   var MORPH_SECONDS = 0.25;
+  var geometryBytes = (mesh) => Object.values(mesh.geometry.attributes).reduce((sum, attribute) => sum + attribute.array.length * 4, 0) + (mesh.geometry.index?.count ?? 0) * 4;
   var TerrainBudgetBlocked = class extends Error {
   };
   function cubeSizeFactors(near, far, changed) {
@@ -25282,6 +25415,8 @@ vec3 worldMorphPosition() {
       this.disposed = false;
       this.selectionMs = 0;
       this.cubeSizes = { near: 1, far: 4 };
+      this.budgetMultiplier = 1;
+      this.limits = worldBudget();
       this.budgetLimited = false;
       this.buffers = /* @__PURE__ */ new Map();
       this.bufferBytes = 0;
@@ -25295,6 +25430,30 @@ vec3 worldMorphPosition() {
     }
     setCubeSizeFactors(near, far) {
       this.cubeSizes = cubeSizeFactors(near, far);
+    }
+    setBudgetMultiplier(multiplier) {
+      const limits = worldBudget(multiplier);
+      if (multiplier === this.budgetMultiplier) return;
+      this.budgetMultiplier = multiplier;
+      this.limits = limits;
+      this.budget.setMultiplier(multiplier);
+      this.cancelTransaction();
+      if (!this.initialized) this.start();
+      this.emit();
+    }
+    cancelTransaction() {
+      const tx = this.transaction;
+      if (!tx) return;
+      tx.controller.abort();
+      for (const mesh of tx.loaded.values()) mesh.geometry.dispose();
+      if (tx.finishAt !== void 0)
+        for (const id of tx.remove) {
+          const mesh = this.active.get(id).mesh;
+          const attr = mesh.geometry.getAttribute("worldPatchTransition");
+          for (let i = 0; i < attr.count; i++) attr.setXY(i, this.time.value - MORPH_SECONDS, 1);
+          attr.needsUpdate = true;
+        }
+      this.transaction = void 0;
     }
     get meshes() {
       return [...this.active.values()].flatMap((p) => p.seam ? [p.mesh, p.seam] : [p.mesh]);
@@ -25401,7 +25560,7 @@ vec3 worldMorphPosition() {
           (id) => (this.active.get(id)?.readyAt ?? Infinity) <= this.time.value
         )
       ).map((node2) => ({ node: node2, error: error(node2) })).sort((a, b) => a.error - b.error);
-      const overBudget = cubes && current.reduce((sum, p) => sum + p.node.lods[0].triangles, 0) > this.budget.triangles;
+      const overBudget = current.reduce((sum, p) => sum + p.node.lods[0].triangles, 0) > (cubes ? this.budget.triangles : this.limits.triangles) || this.meshes.reduce((sum, mesh) => sum + geometryBytes(mesh), 0) > this.limits.bytes;
       const cheap = coarsen.find((p) => p.error < 1 || overBudget);
       this.budgetLimited = false;
       if (cheap && this.fits(cheap.node.children, [cheap.node]))
@@ -25439,7 +25598,8 @@ vec3 worldMorphPosition() {
       const replaced = new Set(coarsened.flatMap((node2) => node2.children));
       for (const p of this.active.values()) {
         if (replaced.has(p.node.id)) continue;
-        bytes += worldGeometryBytes(p.node.lods[0]);
+        bytes += geometryBytes(p.mesh);
+        if (p.seam) bytes += geometryBytes(p.seam);
         if (!remove.includes(p.node.id)) triangles += p.node.lods[0].triangles;
       }
       for (const node2 of coarsened) {
@@ -25452,8 +25612,17 @@ vec3 worldMorphPosition() {
       }
       const currentTriangles = [...this.active.values()].reduce((sum, p) => sum + p.node.lods[0].triangles, 0);
       const coarsening = add.every((node2) => node2.children?.every((id) => remove.includes(id)));
-      const triangleLimit = this.cubes ? Math.max(this.budget.triangles, coarsening ? currentTriangles - 1 : 0) : WORLD_TRIANGLES;
-      return triangles <= triangleLimit && bytes <= WORLD_RESIDENT_BYTES;
+      const triangleLimit = Math.max(
+        this.cubes ? this.budget.triangles : this.limits.triangles,
+        coarsening ? currentTriangles - 1 : 0
+      );
+      const currentBytes = this.meshes.reduce((sum, mesh) => sum + geometryBytes(mesh), 0);
+      const removedBytes = remove.reduce((sum, id) => {
+        const patch = this.active.get(id);
+        return sum + geometryBytes(patch.mesh) + (patch.seam ? geometryBytes(patch.seam) : 0);
+      }, 0);
+      const reclaiming = coarsening && currentBytes > this.limits.bytes && bytes - removedBytes < currentBytes;
+      return triangles <= triangleLimit && (bytes <= this.limits.bytes || reclaiming);
     }
     replace(remove, nodes, coarsening) {
       if (!this.fits(remove, nodes)) return;
@@ -25555,6 +25724,12 @@ vec3 worldMorphPosition() {
       });
     }
     commit(tx, morph) {
+      if (!this.fits(tx.remove, tx.nodes)) {
+        this.cancelTransaction();
+        this.budgetLimited = true;
+        this.emit();
+        return;
+      }
       const next = new Map(this.active);
       for (const id of tx.remove) next.delete(id);
       for (const node2 of tx.nodes)
@@ -25567,11 +25742,23 @@ vec3 worldMorphPosition() {
       const patches = [...next.values()].filter((p) => !!p.surface);
       const plans = planCubeSeams(patches.map((p) => p.surface));
       if (patches.length) {
-        const bytes = (mesh) => mesh.geometry.getAttribute("position").count * 32 + (mesh.geometry.index?.count ?? 0) * 4;
         const finalTriangles = [...next.values()].reduce((sum, p) => sum + (p.mesh.geometry.index?.count ?? 0) / 3, 0) + plans.reduce((sum, plan) => sum + plan.faces.length * 2, 0);
-        const residentBytes = this.meshes.reduce((sum, mesh) => sum + bytes(mesh), 0) + [...tx.loaded.values()].reduce((sum, mesh) => sum + bytes(mesh), 0) + plans.reduce((sum, plan) => sum + plan.faces.length * (4 * 32 + 6 * 4), 0);
-        if (finalTriangles > (this.cubes ? MAX_TERRAIN_TRIANGLES : WORLD_TRIANGLES) || residentBytes > WORLD_RESIDENT_BYTES)
-          throw new Error("Neighbor-aware cube seams exceed the geometry budget.");
+        const currentBytes = this.meshes.reduce((sum, mesh) => sum + geometryBytes(mesh), 0);
+        const seamBytes = plans.reduce((sum, plan) => sum + plan.faces.length * (4 * 32 + 6 * 4), 0);
+        const finalBytes = [...next.values()].reduce((sum, p) => sum + geometryBytes(p.mesh), 0) + seamBytes;
+        const residentBytes = currentBytes + [...tx.loaded.values()].reduce((sum, mesh) => sum + geometryBytes(mesh), 0) + seamBytes;
+        const currentTriangles = this.meshes.reduce((sum, mesh) => sum + (mesh.geometry.index?.count ?? 0) / 3, 0);
+        const coarsening = tx.nodes.every((node2) => node2.children?.every((id) => tx.remove.includes(id)));
+        const triangleLimit = this.cubes ? this.limits.cubeTriangles : this.limits.triangles;
+        const reclaimingTriangles = coarsening && finalTriangles < currentTriangles;
+        const reclaimingBytes = coarsening && currentBytes > this.limits.bytes && finalBytes < currentBytes;
+        if (finalTriangles > triangleLimit && !reclaimingTriangles || residentBytes > this.limits.bytes && !reclaimingBytes) {
+          if (!this.initialized) throw new Error("Neighbor-aware cube seams exceed the geometry budget.");
+          this.cancelTransaction();
+          this.budgetLimited = true;
+          this.emit();
+          return;
+        }
       }
       const seams = plans.map((plan) => plan.faces.length ? this.createMesh(cubeSeamGeometry(
         plan,
@@ -25603,7 +25790,7 @@ vec3 worldMorphPosition() {
       });
       this.transaction = void 0;
       if (!this.initialized && this.manifest.grid)
-        this.budget = new TerrainBudget(tx.nodes.reduce((sum, node2) => sum + node2.lods[0].triangles, 0));
+        this.budget = new TerrainBudget(tx.nodes.reduce((sum, node2) => sum + node2.lods[0].triangles, 0), this.budgetMultiplier);
       this.initialized = true;
       this.emit();
     }
@@ -25647,7 +25834,7 @@ vec3 worldMorphPosition() {
       );
       this.status({
         retry: !!this.error,
-        text: `${this.cubes ? "Cubes" : "Triangles"}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` + (this.cubes ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; adaptive budget ${this.budget.triangles.toLocaleString()} triangles, 96 MiB.` : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) + (!this.initialized ? " Loading complete 3D base; no surface displayed until ready." : "") + (this.transaction ? " Streaming\u2026" : "") + (this.budgetLimited ? " Detail blocked by geometry budget." : "") + (this.error ? ` Patch failed: ${this.error}. ${this.initialized ? "Previous complete surface retained" : "No 3D base loaded"}; retry available.` : "")
+        text: `${this.cubes ? "Cubes" : "Triangles"}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` + (this.cubes ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; adaptive budget ${this.budget.triangles.toLocaleString()} triangles (ceiling ${this.limits.cubeTriangles.toLocaleString()}), ${(this.limits.bytes / 1024 / 1024).toLocaleString()} MiB.` : `Budget ${this.limits.triangles.toLocaleString()} triangles / ${(this.limits.bytes / 1024 / 1024).toLocaleString()} MiB. Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) + (!this.initialized ? " Loading complete 3D base; no surface displayed until ready." : "") + (this.transaction ? " Streaming\u2026" : "") + (this.budgetLimited ? " Detail blocked by geometry budget." : "") + (this.error ? ` Patch failed: ${this.error}. ${this.initialized ? "Previous complete surface retained" : "No 3D base loaded"}; retry available.` : "")
       });
     }
   };
@@ -25835,10 +26022,216 @@ vec3 worldMorphPosition() {
     }
   };
 
+  // src/voxel-runs.ts
+  function decodeVoxelRuns(bytes, bounds2, expectedCount) {
+    const data = new DataView(bytes);
+    if (bytes.byteLength < 32 || data.getUint32(0, true) !== 827085398)
+      throw new Error("Invalid VRL1 voxel-run header.");
+    const columns = data.getUint16(4, true), rows = data.getUint16(6, true), levels = data.getUint16(8, true);
+    const count = data.getUint32(24, true);
+    if (columns < 1 || columns > 128 || rows < 1 || rows > 128 || levels < 1 || levels > 4095 || data.getUint16(10, true) !== 100 || data.getUint32(28, true) !== 0 || count !== expectedCount || bytes.byteLength !== 32 + count * 6 || bytes.byteLength > 32 * 1024 * 1024 || data.getInt32(12, true) !== bounds2.minX || data.getInt32(16, true) !== bounds2.minY || data.getInt32(20, true) !== bounds2.minZ || bounds2.maxX - bounds2.minX !== columns * 100 || bounds2.maxY - bounds2.minY !== rows * 100 || bounds2.maxZ - bounds2.minZ !== levels * 100 || Object.values(bounds2).some((v) => !Number.isSafeInteger(v) || v % 100 !== 0))
+      throw new Error("Voxel runs differ from declared chunk bounds, count or length.");
+    const offsets = new Uint32Array(columns * rows + 1);
+    let previousColumn = -1, previousHigh = -1;
+    for (let i = 0; i < count; i++) {
+      const word = data.getUint32(32 + i * 6, true), length = data.getUint16(36 + i * 6, true);
+      const x = word & 255, y = word >>> 8 & 255, z = word >>> 16 & 4095;
+      const column = y * columns + x;
+      if (word >>> 29 || x >= columns || y >= rows || !length || z + length > levels || column < previousColumn || column === previousColumn && z <= previousHigh)
+        throw new Error("Unsorted, overlapping, adjacent or out-of-bounds voxel run.");
+      offsets[column + 1]++;
+      previousColumn = column;
+      previousHigh = z + length;
+    }
+    for (let i = 1; i < offsets.length; i++) offsets[i] += offsets[i - 1];
+    return { data, columns, rows, levels, count, offsets };
+  }
+
+  // src/voxel-stream.ts
+  var VoxelWorker = class {
+    constructor() {
+      this.id = 0;
+      this.jobs = /* @__PURE__ */ new Map();
+    }
+    fail(error) {
+      this.failure = error;
+      this.worker?.terminate();
+      this.active = void 0;
+      for (const job of [...this.jobs.values()]) {
+        job.cleanup();
+        job.reject(error);
+      }
+    }
+    start() {
+      const worker = new Worker(new URL("./voxel-worker.js", document.baseURI), { type: "module" });
+      worker.addEventListener("error", (event) => {
+        this.fail(new Error(`Voxel worker failed: ${event.message}`));
+      });
+      worker.addEventListener("messageerror", () => this.fail(new Error("Voxel worker response could not be decoded.")));
+      worker.addEventListener("message", (event) => {
+        const job = this.jobs.get(event.data.id);
+        if (!job || event.data.id !== this.active) return;
+        this.active = void 0;
+        job.cleanup();
+        if (event.data.error) job.reject(new Error(event.data.error));
+        else if (event.data.mesh) job.resolve(event.data.mesh);
+        else job.reject(new Error("Invalid voxel worker response."));
+        this.pump();
+      });
+      return worker;
+    }
+    pump() {
+      if (this.active !== void 0 || this.failure || !this.jobs.size) return;
+      const [id, job] = this.jobs.entries().next().value;
+      try {
+        this.worker ?? (this.worker = this.start());
+        this.active = id;
+        this.worker.postMessage({ id, bytes: job.bytes, bounds: job.bounds, count: job.count }, [job.bytes]);
+      } catch (error) {
+        this.fail(new Error(`Could not start voxel worker: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    }
+    mesh(bytes, bounds2, count, signal) {
+      if (this.failure) return Promise.reject(this.failure);
+      signal.throwIfAborted();
+      if (this.jobs.size >= 2) return Promise.reject(new Error("Voxel worker queue exceeds two chunks."));
+      const id = ++this.id;
+      return new Promise((resolve, reject) => {
+        const cleanup = () => {
+          signal.removeEventListener("abort", abort);
+          this.jobs.delete(id);
+        };
+        const abort = () => {
+          if (this.active === id) {
+            this.worker?.terminate();
+            this.worker = void 0;
+            this.active = void 0;
+          }
+          cleanup();
+          reject(signal.reason);
+          this.pump();
+        };
+        this.jobs.set(id, { reject, resolve, cleanup, bytes, bounds: bounds2, count });
+        signal.addEventListener("abort", abort, { once: true });
+        this.pump();
+      });
+    }
+    dispose() {
+      this.failure = new Error("Voxel worker is disposed.");
+      this.worker?.terminate();
+      for (const job of [...this.jobs.values()]) {
+        job.cleanup();
+        job.reject(new DOMException("Voxel layer cleared.", "AbortError"));
+      }
+      this.jobs.clear();
+    }
+  };
+  var VoxelBundles = class {
+    constructor(request, budget) {
+      this.request = request;
+      this.budget = budget;
+      this.entries = /* @__PURE__ */ new Map();
+      this.pending = /* @__PURE__ */ new Map();
+      this.bytes = 0;
+      this.disposed = false;
+    }
+    get residentBytes() {
+      return this.bytes;
+    }
+    setBudget(bytes) {
+      this.budget = bytes;
+      this.evict(0);
+    }
+    clear() {
+      this.disposed = true;
+      for (const entry of this.pending.values()) entry.controller.abort();
+      this.pending.clear();
+      this.entries.clear();
+      this.bytes = 0;
+    }
+    evict(incoming) {
+      while (this.bytes + incoming > this.budget && this.entries.size) {
+        const key = this.entries.keys().next().value;
+        this.bytes -= this.entries.get(key).bytes.byteLength;
+        this.entries.delete(key);
+      }
+    }
+    async get(url, descriptor, bounds2, signal) {
+      signal.throwIfAborted();
+      if (this.disposed) throw new Error("Voxel cache is disposed.");
+      if (descriptor.bundleBytes > this.budget) throw new Error("Voxel bundle exceeds the selected cache budget.");
+      const key = url.href;
+      const known = this.entries.get(key)?.descriptor ?? this.pending.get(key)?.descriptor;
+      if (known && (known.sha256 !== descriptor.sha256 || known.bundleBytes !== descriptor.bundleBytes))
+        throw new Error("Conflicting voxel bundle descriptors.");
+      let bytes = this.entries.get(key)?.bytes;
+      if (bytes) {
+        const entry = this.entries.get(key);
+        this.entries.delete(key);
+        this.entries.set(key, entry);
+      } else {
+        let entry = this.pending.get(key);
+        if (!entry) {
+          if (this.pending.size >= 4) throw new Error("Voxel bundle requests exceed the four-request limit.");
+          const controller = new AbortController();
+          const promise = (async () => {
+            const result = await boundedResponse(
+              await this.request(url, { signal: controller.signal }),
+              descriptor.bundleBytes,
+              controller.signal,
+              "Voxel bundle"
+            );
+            controller.signal.throwIfAborted();
+            if (result.byteLength !== descriptor.bundleBytes) throw new Error("Wrong voxel bundle length.");
+            const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", result))].map((b) => b.toString(16).padStart(2, "0")).join("");
+            controller.signal.throwIfAborted();
+            if (hash !== descriptor.sha256) throw new Error("Voxel bundle SHA-256 mismatch.");
+            this.evict(result.byteLength);
+            if (result.byteLength <= this.budget) {
+              this.entries.set(key, { bytes: result, descriptor });
+              this.bytes += result.byteLength;
+            }
+            return result;
+          })();
+          entry = { promise, controller, descriptor, users: 0 };
+          this.pending.set(key, entry);
+          const finished = () => {
+            if (this.pending.get(key) === entry) this.pending.delete(key);
+          };
+          void promise.then(finished, finished);
+        }
+        entry.users++;
+        try {
+          bytes = await new Promise((resolve, reject) => {
+            const abort = () => reject(signal.reason);
+            signal.addEventListener("abort", abort, { once: true });
+            void entry.promise.then(
+              (result) => {
+                signal.removeEventListener("abort", abort);
+                resolve(result);
+              },
+              (error) => {
+                signal.removeEventListener("abort", abort);
+                reject(error);
+              }
+            );
+          });
+        } finally {
+          if (--entry.users === 0 && this.pending.get(key) === entry) {
+            this.pending.delete(key);
+            entry.controller.abort();
+          }
+        }
+      }
+      signal.throwIfAborted();
+      const chunk = bytes.slice(descriptor.offset, descriptor.offset + descriptor.length);
+      decodeVoxelRuns(chunk, bounds2, descriptor.count);
+      return chunk;
+    }
+  };
+
   // src/world-model.ts
   var WORLD_TILE_BYTES = 32 * 1024 * 1024;
-  var WORLD_RESIDENT_BYTES = 96 * 1024 * 1024;
-  var WORLD_TRIANGLES = 1e6;
   function object2(value2) {
     if (typeof value2 !== "object" || value2 === null || Array.isArray(value2))
       throw new Error("Invalid world-model object.");
@@ -25883,6 +26276,9 @@ vec3 worldMorphPosition() {
     const v = object2(value2);
     const progressive = v.roots !== void 0;
     const statistics = object2(v.statistics);
+    const voxel = v.version === 3 && v.meshFormat === "vrl1";
+    if (voxel && (progressive || v.grid !== void 0 || v.voxelInspection !== void 0 || v.cellSizeCm !== 100 || v.tileSizeCm !== 12800 || v.maxErrorCm !== 0 || statistics.representation !== "voxel-runs" || statistics.complete !== true || statistics.geometry !== "closed-solid"))
+      throw new Error("Invalid closed voxel-run manifest.");
     if (v.version === 2) {
       const grid = object2(v.grid), b2 = bounds(v.bounds);
       const blobRoot = text(grid.blobRoot), processorVersion = text(grid.processorVersion);
@@ -25910,9 +26306,13 @@ vec3 worldMorphPosition() {
     const spatial = cubes && statistics.partitionDimensions === 3;
     if (cubes && statistics.partitionDimensions !== void 0 && statistics.partitionDimensions !== 2 && statistics.partitionDimensions !== 3)
       throw new Error("Unsupported cube partition dimensions.");
-    if (v.version !== 1 || v.mapKey !== mapKey || v.heightUnits !== "centimeters" || v.meshFormat !== "awm1" || !Array.isArray(v.tiles) || !v.tiles.length || v.tiles.length > (progressive ? 262144 : 16384) || !Array.isArray(v.warnings) || !v.warnings.every((w) => typeof w === "string"))
+    if (!voxel && v.version !== 1 || v.mapKey !== mapKey || v.heightUnits !== "centimeters" || v.meshFormat !== (voxel ? "vrl1" : "awm1") || !Array.isArray(v.tiles) || !v.tiles.length && statistics.representation !== "air-volume" && !voxel || v.tiles.length > (progressive ? 262144 : 16384) || !Array.isArray(v.warnings) || !v.warnings.every((w) => typeof w === "string"))
       throw new Error("Invalid world-model manifest.");
+    if (statistics.representation === "air-volume" && (statistics.airClass !== "player" && statistics.airClass !== "death" || progressive))
+      throw new Error("Invalid air-volume classification.");
     const b = bounds(v.bounds, progressive);
+    if (voxel && (b.minZ >= b.maxZ || b.maxZ - b.minZ > 409500 || Object.values(b).some((value3) => value3 % 100 !== 0)))
+      throw new Error("Voxel world must use the zero-aligned 100 cm grid.");
     const tileSize = number(v.tileSizeCm, 1, statistics.representation === "world-boundaries" ? 1e8 : 1e6);
     if (!progressive && (Math.ceil((b.maxX - b.minX) / tileSize) > 2048 || Math.ceil((b.maxY - b.minY) / tileSize) > 2048))
       throw new Error("World-model coverage grid is too large.");
@@ -25923,7 +26323,7 @@ vec3 worldMorphPosition() {
       const column = Math.round((box.minX - b.minX) / tileSize);
       const row = Math.round((box.minY - b.minY) / tileSize);
       const cell = `${column},${row}`;
-      if (ids.has(id) || box.minX < b.minX - 0.1 || box.maxX > b.maxX + 0.1 || box.minY < b.minY - 0.1 || box.maxY > b.maxY + 0.1 || box.minZ < b.minZ - 0.1 || box.maxZ > b.maxZ + 0.1 || !progressive && (cells.has(cell) || box.minX < b.minX || box.minY < b.minY || box.maxX > b.maxX + 0.1 || box.maxY > b.maxY + 0.1 || box.minZ < b.minZ - 0.1 || box.maxZ > b.maxZ + 0.1 || Math.abs(box.minX - b.minX - column * tileSize) > 0.1 || Math.abs(box.minY - b.minY - row * tileSize) > 0.1 || Math.abs(box.maxX - Math.min(b.maxX, box.minX + tileSize)) > 0.1 || Math.abs(box.maxY - Math.min(b.maxY, box.minY + tileSize)) > 0.1) || !Array.isArray(t.lods) || !t.lods.length || t.lods.length > 8)
+      if (ids.has(id) || box.minX < b.minX - 0.1 || box.maxX > b.maxX + 0.1 || box.minY < b.minY - 0.1 || box.maxY > b.maxY + 0.1 || box.minZ < b.minZ - 0.1 || box.maxZ > b.maxZ + 0.1 || !progressive && (cells.has(cell) || box.minX < b.minX || box.minY < b.minY || box.maxX > b.maxX + 0.1 || box.maxY > b.maxY + 0.1 || box.minZ < b.minZ - 0.1 || box.maxZ > b.maxZ + 0.1 || Math.abs(box.minX - b.minX - column * tileSize) > 0.1 || Math.abs(box.minY - b.minY - row * tileSize) > 0.1 || Math.abs(box.maxX - Math.min(b.maxX, box.minX + tileSize)) > 0.1 || Math.abs(box.maxY - Math.min(b.maxY, box.minY + tileSize)) > 0.1) || !Array.isArray(t.lods) || !t.lods.length || t.lods.length > (voxel ? 1 : 8) || voxel && (box.minZ !== b.minZ || box.maxZ !== b.maxZ || Object.values(box).some((value3) => value3 % 100 !== 0)))
         throw new Error("Invalid/overlapping world-model tile grid.");
       ids.add(id);
       cells.add(cell);
@@ -25932,8 +26332,8 @@ vec3 worldMorphPosition() {
         const l = object2(rawLod);
         const lod = {
           url: text(l.url),
-          vertices: integer(l.vertices, 3, 1e7),
-          triangles: integer(l.triangles, 1, 1e7),
+          vertices: integer(l.vertices, 3, voxel ? 32e6 : 1e7),
+          triangles: integer(l.triangles, 1, voxel ? 16e6 : 1e7),
           maxErrorCm: number(l.maxErrorCm, 0, 1e5),
           ...l.byteOffset !== void 0 || l.byteLength !== void 0 ? {
             byteOffset: integer(l.byteOffset, 0, Number.MAX_SAFE_INTEGER),
@@ -25941,11 +26341,29 @@ vec3 worldMorphPosition() {
           } : {},
           ...cubes ? { cubeSizeCm: number(l.cubeSizeCm, 100, 6400) } : progressive ? { morph: true } : {}
         };
+        if (voxel) {
+          const runs = object2(l.voxel);
+          lod.voxel = {
+            offset: integer(runs.offset, 0, WORLD_TILE_BYTES),
+            length: integer(runs.length, 38, WORLD_TILE_BYTES),
+            count: integer(runs.count, 1, Math.floor((WORLD_TILE_BYTES - 32) / 6)),
+            faces: integer(runs.faces, 6, 8e6),
+            bundleBytes: integer(runs.bundleBytes, 38, WORLD_TILE_BYTES),
+            sha256: text(runs.sha256)
+          };
+          const d = lod.voxel;
+          const voxelUrl = lod.url === `bundles/${d.sha256}.vrb.gz` || /^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.vrb\.gz$/.test(lod.url);
+          if (!/^[0-9a-f]{64}$/.test(d.sha256) || !voxelUrl || d.offset + d.length > d.bundleBytes || d.length !== 32 + d.count * 6 || lod.vertices !== d.faces * 4 || lod.triangles !== d.faces * 2 || lod.maxErrorCm !== 0 || l.morph !== void 0 || l.cubeSizeCm !== void 0 || l.byteOffset !== void 0 || l.byteLength !== void 0)
+            throw new Error("Invalid voxel-run bundle descriptor.");
+          lod.triangles = Math.min(lod.triangles, WORLD_TRIANGLES);
+          lod.vertices = Math.min(lod.vertices, Math.floor((WORLD_RESIDENT_BYTES - lod.triangles * 12) / 32));
+          lod.cubeSizeCm = 100;
+        } else if (l.voxel !== void 0) throw new Error("Voxel records require VRL1 metadata.");
         if (progressive && !cubes && l.morph !== true)
           throw new Error("Progressive patches require collapse correspondence.");
         if (cubes && (l.morph === true || ![100, 200, 400, 800, 1600, 3200, 6400].includes(lod.cubeSizeCm)))
           throw new Error("Cube patches require aligned non-morphing cube sizes.");
-        if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) && !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp|awmb)$/.test(lod.url) || /[\s\\]/.test(lod.url) || lod.url.split("/").includes("..") || worldBinaryBytes(lod) > WORLD_TILE_BYTES || lod.maxErrorCm < previousError || lod.url.endsWith(".awmb") !== (lod.byteOffset !== void 0) || lod.byteOffset !== void 0 && (!cubes || !Number.isSafeInteger(lod.byteOffset + lod.byteLength)))
+        if (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) && !voxel && !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp|awmb)$/.test(lod.url) || /[\s\\]/.test(lod.url) || lod.url.split("/").includes("..") || !voxel && worldBinaryBytes(lod) > WORLD_TILE_BYTES || lod.maxErrorCm < previousError || lod.url.endsWith(".awmb") !== (lod.byteOffset !== void 0) || lod.byteOffset !== void 0 && (!cubes || !Number.isSafeInteger(lod.byteOffset + lod.byteLength)))
           throw new Error("Invalid world-model LOD, mesh URL or 32 MiB tile budget.");
         previousError = lod.maxErrorCm;
         return lod;
@@ -25960,6 +26378,24 @@ vec3 worldMorphPosition() {
         ...progressive ? { children } : {}
       };
     });
+    if (voxel) {
+      const bundles = /* @__PURE__ */ new Map();
+      for (const tile of tiles) {
+        const lod = tile.lods[0], records = bundles.get(lod.url) ?? [];
+        records.push(lod.voxel);
+        bundles.set(lod.url, records);
+      }
+      for (const records of bundles.values()) {
+        let end = 0;
+        const length = records[0].bundleBytes;
+        for (const record2 of records.sort((a, b2) => a.offset - b2.offset)) {
+          if (record2.bundleBytes !== length || record2.offset !== end)
+            throw new Error("Voxel bundle segments overlap, have gaps or disagree on decoded length.");
+          end += record2.length;
+        }
+        if (end !== length) throw new Error("Voxel bundle inventory is incomplete.");
+      }
+    }
     let roots;
     if (progressive) {
       if (statistics.hierarchyVersion !== 1 && statistics.hierarchyVersion !== 2 && !cubes || statistics.hierarchyVersion === 2 && statistics.seamPolicy !== "fixed-interface-collar-v1" || cubes && (statistics.seamPolicy !== "closed-voxel-partitions-v1" || statistics.representation !== "blocks" || statistics.complete !== true))
@@ -25992,10 +26428,10 @@ vec3 worldMorphPosition() {
         throw new Error("Complete progressive base exceeds geometry budgets.");
     }
     return {
-      version: 1,
+      version: voxel ? 3 : 1,
       mapKey,
       heightUnits: "centimeters",
-      meshFormat: "awm1",
+      meshFormat: voxel ? "vrl1" : "awm1",
       cellSizeCm: number(v.cellSizeCm, 0.1, 1e4),
       tileSizeCm: tileSize,
       maxErrorCm: number(v.maxErrorCm, 0, 1e5),
@@ -26221,8 +26657,9 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
     material.customProgramCacheKey = () => "authored-world-energy-field-v1";
   }
   var WorldModelLayer = class {
-    constructor(status, request = fetch) {
+    constructor(status, request = fetch, createVoxelMesher = () => new VoxelWorker()) {
       this.status = status;
+      this.createVoxelMesher = createVoxelMesher;
       this.group = new Group();
       this.clipPlane = new Plane(new Vector3(0, -1, 0), 1e9);
       this.revision = 0;
@@ -26232,6 +26669,8 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.desired = [];
       this.morphTime = { value: 0 };
       this.cubeSizes = { near: 1, far: 4 };
+      this.budgetMultiplier = 1;
+      this.limits = worldBudget();
       this.materials = [];
       this.appearance = {
         exaggeration: 1,
@@ -26254,6 +26693,24 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       return void 0;
     }
     voxelFill(bounds2, signal) {
+      if (this.manifest?.meshFormat === "vrl1" && this.context && this.voxelBundles) {
+        const tile = this.manifest.tiles.find((t) => t.bounds.minX <= bounds2.minX && t.bounds.maxX >= bounds2.maxX && t.bounds.minY <= bounds2.minY && t.bounds.maxY >= bounds2.maxY && t.bounds.minZ <= bounds2.minZ && t.bounds.maxZ >= bounds2.maxZ);
+        if (!tile) return Promise.reject(new Error("No retained voxel chunk covers this inspection cell."));
+        const descriptor = tile.lods[0].voxel;
+        return this.voxelBundles.get(new URL(tile.lods[0].url, this.context.url), descriptor, tile.bounds, signal).then((bytes) => {
+          const decoded = decodeVoxelRuns(bytes, tile.bounds, descriptor.count);
+          let volume = 0;
+          for (let i = 0; i < decoded.count; i++) {
+            const word = decoded.data.getUint32(32 + i * 6, true);
+            const x = tile.bounds.minX + (word & 255) * 100;
+            const y = tile.bounds.minY + (word >>> 8 & 255) * 100;
+            const z = tile.bounds.minZ + (word >>> 16 & 4095) * 100;
+            const high = z + decoded.data.getUint16(36 + i * 6, true) * 100;
+            volume += Math.max(0, Math.min(x + 100, bounds2.maxX) - Math.max(x, bounds2.minX)) * Math.max(0, Math.min(y + 100, bounds2.maxY) - Math.max(y, bounds2.minY)) * Math.max(0, Math.min(high, bounds2.maxZ) - Math.max(z, bounds2.minZ));
+          }
+          return volume / ((bounds2.maxX - bounds2.minX) * (bounds2.maxY - bounds2.minY) * (bounds2.maxZ - bounds2.minZ));
+        });
+      }
       if (!this.manifest?.voxelInspection || !this.context) return void 0;
       this.voxelReader ?? (this.voxelReader = new VoxelReferenceReader(this.manifest.voxelInspection, this.context.url, this.request));
       return this.voxelReader.fill(bounds2, signal);
@@ -26270,6 +26727,10 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.controller = void 0;
       for (const request of this.pending.values()) request.controller.abort();
       this.pending.clear();
+      this.voxelBundles?.clear();
+      this.voxelBundles = void 0;
+      this.voxelMesher?.dispose();
+      this.voxelMesher = void 0;
       this.progressive?.clear();
       this.progressive = void 0;
       for (const item of this.resident.values()) item.mesh.geometry.dispose();
@@ -26284,6 +26745,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.voxelReader = void 0;
       this.manifest = void 0;
       this.desired = [];
+      this.lastView = void 0;
       this.failed.clear();
     }
     async enable(context) {
@@ -26304,8 +26766,14 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
           JSON.parse(new TextDecoder().decode(bytes)),
           context.mapKey
         );
+        if (context.airClass && (manifest.statistics.representation !== "air-volume" || manifest.statistics.airClass !== context.airClass))
+          throw new Error(`Expected ${context.airClass} air-volume metadata.`);
         if (revision !== this.revision) return;
         this.manifest = manifest;
+        if (manifest.meshFormat === "vrl1") {
+          this.voxelBundles = new VoxelBundles(this.request, this.voxelCacheBudget());
+          this.voxelMesher = this.createVoxelMesher();
+        }
         this.makeMaterials();
         this.setAppearance(this.appearance);
         if (manifest.roots) {
@@ -26327,6 +26795,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
             (status) => this.status({ ...status, manifest })
           );
           this.progressive.setCubeSizeFactors(this.cubeSizes.near, this.cubeSizes.far);
+          this.progressive.setBudgetMultiplier(this.budgetMultiplier);
           this.progressive.start();
           return;
         }
@@ -26350,13 +26819,15 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       for (let flag = 0; flag < this.materials.length; flag++) {
         const material = this.materials[flag];
         const boundary = this.manifest?.statistics.representation === "world-boundaries";
+        const volume = this.manifest?.statistics.representation === "air-volume";
         const mapped = !!(flag & 1) || flag === 4, walkable = !!(flag & 2);
         material.color.set(
-          boundary ? "#72dbf6" : appearance.slopes && walkable ? "#3edc65" : this.context?.texture ? "#ffffff" : "#394149"
+          volume ? this.manifest?.statistics.airClass === "player" ? "#4bd8ff" : "#ff7547" : boundary ? "#72dbf6" : appearance.slopes && walkable ? "#3edc65" : this.context?.texture ? "#ffffff" : "#394149"
         );
-        material.opacity = boundary ? 0.28 * appearance.opacity : mapped ? appearance.opacity : 1;
-        material.transparent = boundary || material.opacity < 1;
-        material.depthWrite = !boundary;
+        material.opacity = volume ? appearance.opacity : boundary ? 0.28 * appearance.opacity : mapped ? appearance.opacity : 1;
+        material.transparent = volume || boundary || material.opacity < 1;
+        material.depthWrite = !boundary && !volume;
+        material.depthTest = !volume || !appearance.through;
         material.polygonOffset = appearance.wireframe;
         material.polygonOffsetFactor = 1;
         material.polygonOffsetUnits = 1;
@@ -26371,6 +26842,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.progressive?.animate();
     }
     update(camera, target, height) {
+      this.lastView = { camera, target, height };
       const m = this.manifest, c = this.context;
       if (!m || !c) return;
       if (this.progressive) {
@@ -26384,11 +26856,22 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         height,
         this.appearance.exaggeration,
         c.centerX,
-        c.centerY
+        c.centerY,
+        this.limits.triangles,
+        this.limits.bytes
       );
       const wanted = new Map(this.desired.map((item) => [item.tile.id, item.lod]));
+      let residentTriangles = 0, residentBytes = 0;
+      for (const item of this.resident.values()) {
+        const lod = item.tile.lods[item.lod];
+        residentTriangles += lod.triangles;
+        residentBytes += worldGeometryBytes(lod);
+      }
       for (const [id, item] of this.resident)
-        if (!wanted.has(id)) {
+        if (!wanted.has(id) || wanted.get(id) !== item.lod && (residentTriangles > this.limits.triangles || residentBytes > this.limits.bytes)) {
+          const lod = item.tile.lods[item.lod];
+          residentTriangles -= lod.triangles;
+          residentBytes -= worldGeometryBytes(lod);
           this.group.remove(item.mesh);
           item.mesh.geometry.dispose();
           this.resident.delete(id);
@@ -26406,6 +26889,22 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.cubeSizes = cubeSizeFactors(near, far);
       this.progressive?.setCubeSizeFactors(near, far);
     }
+    setBudgetMultiplier(multiplier) {
+      const limits = worldBudget(multiplier);
+      if (this.budgetMultiplier === multiplier) return;
+      this.budgetMultiplier = multiplier;
+      this.limits = limits;
+      this.voxelBundles?.setBudget(this.voxelCacheBudget());
+      if (this.manifest?.meshFormat === "vrl1") this.failed.clear();
+      this.progressive?.setBudgetMultiplier(multiplier);
+      if (this.lastView) {
+        const { camera, target, height } = this.lastView;
+        this.update(camera, target, height);
+      }
+    }
+    voxelCacheBudget() {
+      return Math.min(1024, 96 * this.budgetMultiplier) * 1024 * 1024;
+    }
     retry() {
       if (this.progressive) {
         this.progressive.retry();
@@ -26414,6 +26913,12 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       if (!this.manifest && this.context) {
         void this.enable(this.context);
         return;
+      }
+      if (this.manifest?.meshFormat === "vrl1") {
+        for (const request of this.pending.values()) request.controller.abort();
+        this.pending.clear();
+        this.voxelMesher?.dispose();
+        this.voxelMesher = this.createVoxelMesher();
       }
       this.failed.clear();
       this.pump();
@@ -26433,7 +26938,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         ]
       ];
       const old = this.materials;
-      const blockSides = this.manifest?.statistics.representation === "blocks";
+      const blockSides = this.manifest?.meshFormat === "vrl1" || this.manifest?.statistics.representation === "blocks";
       const image = context.texture ? object2(context.texture.image) : void 0;
       const texel = image ? new Vector2(
         1 / number(image.width, 1, 1e5),
@@ -26441,14 +26946,15 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       ) : void 0;
       this.materials = Array.from({ length: blockSides ? 5 : 4 }, (_, flag) => {
         const boundary = this.manifest?.statistics.representation === "world-boundaries";
+        const volume = this.manifest?.statistics.representation === "air-volume";
         const common2 = {
-          map: boundary ? null : context.texture ?? null,
+          map: boundary || volume ? null : context.texture ?? null,
           side: DoubleSide,
           clippingPlanes
         };
-        const material = this.appearance.lighting && !boundary ? new MeshPhongMaterial({ ...common2, flatShading: true, specular: "#000000" }) : new MeshBasicMaterial(common2);
+        const material = this.appearance.lighting && !boundary && !volume ? new MeshPhongMaterial({ ...common2, flatShading: true, specular: "#000000" }) : new MeshBasicMaterial(common2);
         if (boundary) energyField(material, this.morphTime);
-        else if (!(flag & 1) && texel) colorCoveredSurface(material, texel);
+        else if (!volume && !(flag & 1) && texel) colorCoveredSurface(material, texel);
         return material;
       });
       for (const item of this.resident.values()) item.mesh.material = this.materials;
@@ -26497,11 +27003,25 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
             worldGeometryBytes(next) - (previous ? worldGeometryBytes(previous) : 0)
           );
         }
-        if (triangles > WORLD_TRIANGLES || bytes > WORLD_RESIDENT_BYTES) continue;
+        if (triangles > this.limits.triangles || bytes > this.limits.bytes) continue;
         this.pending.set(id, request);
         void (async () => {
           try {
-            const bytes2 = await boundedResponse(
+            let decodedDescriptor = descriptor;
+            let bytes2;
+            if (descriptor.voxel) {
+              const packed = await this.voxelBundles.get(
+                new URL(descriptor.url, context.url),
+                descriptor.voxel,
+                selection.tile.bounds,
+                controller.signal
+              );
+              const result = await this.voxelMesher.mesh(packed, selection.tile.bounds, descriptor.voxel.count, controller.signal);
+              if (result.unitFaces !== descriptor.voxel.faces || result.vertices > descriptor.voxel.faces * 4 || result.triangles > descriptor.voxel.faces * 2)
+                throw new Error("Generated voxel faces differ from the exported occupancy.");
+              bytes2 = result.bytes;
+              decodedDescriptor = { ...descriptor, vertices: result.vertices, triangles: result.triangles };
+            } else bytes2 = await boundedResponse(
               await this.request(new URL(descriptor.url, context.url), {
                 signal: controller.signal
               }),
@@ -26513,13 +27033,26 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
             if (revision !== this.revision || this.pending.get(id) !== request) return;
             const geometry = worldGeometry(
               bytes2,
-              descriptor,
+              decodedDescriptor,
               selection.tile.bounds,
               context.centerX,
               context.centerY,
               context.mapBounds,
-              this.manifest?.statistics.representation === "blocks"
+              !!descriptor.voxel || this.manifest?.statistics.representation === "blocks"
             );
+            if (descriptor.voxel) {
+              descriptor.vertices = decodedDescriptor.vertices;
+              descriptor.triangles = decodedDescriptor.triangles;
+              let totalTriangles = descriptor.triangles, totalBytes = worldGeometryBytes(descriptor);
+              for (const [residentId, item] of this.resident) if (residentId !== id) {
+                totalTriangles += item.tile.lods[item.lod].triangles;
+                totalBytes += worldGeometryBytes(item.tile.lods[item.lod]);
+              }
+              if (totalTriangles > this.limits.triangles || totalBytes > this.limits.bytes) {
+                geometry.dispose();
+                throw new Error("Closed voxel geometry exceeds the selected budget; increase the terrain budget or move closer, then retry");
+              }
+            }
             const old = this.resident.get(id);
             if (old) {
               this.group.remove(old.mesh);
@@ -26555,7 +27088,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.status({
         manifest: this.manifest,
         retry: !!error,
-        text: `Continuous skin: ${this.resident.size.toLocaleString()} / ${this.manifest.tiles.length.toLocaleString()} tiles resident, ${triangles.toLocaleString()} triangles. Camera-selected 3D detail; unloaded areas remain empty.` + (this.pending.size ? " Loading\u2026" : "") + (error ? ` Tile failed: ${error}. Previous tile retained if available; otherwise this area remains empty.` : "")
+        text: `${this.manifest.meshFormat === "vrl1" ? "Closed voxel terrain" : this.manifest.statistics.representation === "air-volume" ? "Volume shells" : "Continuous skin"}: ${this.resident.size.toLocaleString()} / ${this.manifest.tiles.length.toLocaleString()} tiles resident, ${triangles.toLocaleString()} triangles. Budget ${this.limits.triangles.toLocaleString()} triangles / ${(this.limits.bytes / 1024 / 1024).toLocaleString()} MiB. Camera-selected 3D detail; unloaded areas remain empty.` + (this.voxelBundles ? ` Packed voxel cache: ${(this.voxelBundles.residentBytes / 1024 / 1024).toFixed(1)} / ${this.voxelCacheBudget() / 1024 / 1024} MiB; geometry is evicted separately.` : "") + (this.pending.size ? " Loading\u2026" : "") + (error ? ` Tile failed: ${error}. Previous tile retained if available; otherwise this area remains empty.` : "")
       });
     }
   };
@@ -26781,6 +27314,11 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.orbitPivot = new Vector3();
       this.touchPointers = /* @__PURE__ */ new Map();
       this.lastHover = 0;
+      this.airSeals = new AirSealLayer();
+      this.airVolumes = {
+        player: new WorldModelLayer((status) => this.airVolumeStatus("player", status)),
+        death: new WorldModelLayer((status) => this.airVolumeStatus("death", status))
+      };
       this.worldBoundaries = new WorldModelLayer((status) => {
         const label = el("world-boundary-status");
         label.hidden = false;
@@ -26811,6 +27349,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         if (status.manifest && status.manifest !== this.worldModelManifest) {
           const m = this.worldModelManifest = status.manifest;
           if (m.statistics.hierarchyVersion === 3) this.updateCubeSizeControl();
+          this.updateTerrainBudgetControl();
           el("world-model-details").hidden = false;
           const errorMeaning = m.statistics.errorMeaning;
           el("world-model-resolution").textContent = (m.statistics.representation === "blocks" ? `${displayNumber(m.cellSizeCm / 100)} m nearby cubes; coarse cubes conservatively cover fine solid cells. ` : `${displayNumber(m.cellSizeCm / 100)} m extraction cells; ${displayNumber(m.maxErrorCm / 100)} m base error budget. `) + (typeof errorMeaning === "string" ? `${errorMeaning} ` : "") + (m.statistics.representation === "blocks" ? "Cubic occupancy of reconstructed solid, not a heightfield or player navigation." : "Exterior-connected skin, not player navigation. Source-slope flags are independent of mesh simplification.");
@@ -26905,6 +27444,9 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
         this.resources,
         this.worldModel.group,
         this.worldBoundaries.group,
+        this.airSeals.group,
+        this.airVolumes.player.group,
+        this.airVolumes.death.group,
         new AmbientLight(16777215, 0.65)
       );
       const sun = new DirectionalLight(16774109, 0.8);
@@ -26942,6 +27484,9 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
             this.renderer.domElement.clientHeight
           );
           this.worldBoundaries.update(this.camera, this.controls.target, this.renderer.domElement.clientHeight);
+          for (const layer of Object.values(this.airVolumes))
+            if (layer.group.visible && layer.active)
+              layer.update(this.camera, this.controls.target, this.renderer.domElement.clientHeight);
         }
         this.renderer.render(this.scene, this.camera);
         if (this.map && this.manifest) {
@@ -27050,6 +27595,9 @@ CCC: ${encodeCameraCode(
       input("near-cube-size").addEventListener("input", () => {
         this.updateCubeSizeControl("near");
       });
+      input("terrain-budget").addEventListener("input", () => {
+        this.updateTerrainBudgetControl();
+      });
       el("camera-go").addEventListener("click", () => {
         try {
           this.ccc(el("camera-code").value);
@@ -27065,6 +27613,12 @@ CCC: ${encodeCameraCode(
         this.renderDebugInspection();
       });
       el("world-boundary-retry").addEventListener("click", () => this.worldBoundaries.retry());
+      for (const kind of ["player", "death"])
+        el(`${kind}-air-retry`).addEventListener("click", () => this.airVolumes[kind].retry());
+      el("air-seals-retry").addEventListener("click", () => {
+        if (this.airSealUrl && this.abort)
+          void this.loadAirSeals(this.airSealUrl, this.abort.signal, this.generation);
+      });
       input("world-cutaway").addEventListener("input", () => this.appearance());
       el("retry").addEventListener("click", () => {
         if (this.selectedKey) void this.load(this.selectedKey);
@@ -27084,6 +27638,11 @@ CCC: ${encodeCameraCode(
         "shading",
         "wireframe",
         "show-world-boundaries",
+        "show-air-seals",
+        "show-player-air",
+        "show-death-air",
+        "air-volume-opacity",
+        "air-volume-through",
         "debug-toggle"
       ])
         input(id).addEventListener("input", () => this.appearance());
@@ -27293,6 +27852,18 @@ CCC: ${encodeCameraCode(
       this.selectedKey = key;
       this.worldModel.clear();
       this.worldBoundaries.clear();
+      this.airSeals.clear();
+      this.airVolumeUrls = void 0;
+      for (const kind of ["player", "death"]) {
+        this.airVolumes[kind].clear();
+        el(`${kind}-air-status`).hidden = true;
+        el(`${kind}-air-retry`).hidden = true;
+      }
+      el("air-volume-controls").hidden = true;
+      this.airSealUrl = void 0;
+      el("air-seals-toggle").hidden = true;
+      el("air-seals-status").hidden = true;
+      el("air-seals-retry").hidden = true;
       this.boundaryModelUrl = void 0;
       this.worldBoundaryManifest = void 0;
       el("world-boundary-toggle").hidden = true;
@@ -27304,6 +27875,7 @@ CCC: ${encodeCameraCode(
       el("world-model-status").setAttribute("data-debug", "");
       el("world-model-retry").hidden = true;
       el("world-model-details").hidden = true;
+      el("terrain-budget-label").hidden = true;
       el("world-cutaway-label").hidden = true;
       this.controls.maxPolarAngle = this.movementMode === "camera" ? Math.PI - 1e-3 : Math.PI * 0.495;
       this.abort?.abort();
@@ -27401,9 +27973,17 @@ CCC: ${encodeCameraCode(
         this.buildResources();
         this.home(true);
         el("loading").hidden = true;
-        this.blockModelUrl = manifest.cubeModel && manifestUrl ? new URL(manifest.cubeModel.url, manifestUrl).href : void 0;
+        const terrainModel = manifest.voxelModel ?? manifest.cubeModel;
+        this.blockModelUrl = terrainModel && manifestUrl ? new URL(terrainModel.url, manifestUrl).href : void 0;
         this.boundaryModelUrl = manifest.boundaryModel && manifestUrl ? new URL(manifest.boundaryModel.url, manifestUrl).href : void 0;
         el("world-boundary-toggle").hidden = !this.boundaryModelUrl;
+        this.airSealUrl = manifest.airSeals && manifestUrl ? new URL(manifest.airSeals.url, manifestUrl).href : void 0;
+        if (this.airSealUrl) void this.loadAirSeals(this.airSealUrl, signal, generation);
+        this.airVolumeUrls = manifest.airVolumes && manifestUrl ? {
+          player: new URL(manifest.airVolumes.player.url, manifestUrl).href,
+          death: new URL(manifest.airVolumes.death.url, manifestUrl).href
+        } : void 0;
+        el("air-volume-controls").hidden = !this.airVolumeUrls;
         this.updateWorldModel();
       } catch (error) {
         if (generation !== this.generation) return;
@@ -27451,6 +28031,17 @@ CCC: ${encodeCameraCode(
         }
       });
     }
+    updateTerrainBudgetControl() {
+      const multiplier = 2 ** value("terrain-budget");
+      const limits = worldBudget(multiplier);
+      const memory = limits.bytes / 1024 / 1024;
+      const unit = this.worldModelManifest?.statistics.hierarchyVersion === 3 ? "triangle target" : "triangles";
+      const text2 = `${limits.triangles / 1e6}M ${unit} / ${memory >= 1024 ? `${memory / 1024} GiB` : `${memory} MiB`}`;
+      el("terrain-budget-value").textContent = text2;
+      input("terrain-budget").setAttribute("aria-valuetext", text2);
+      this.worldModel.setBudgetMultiplier(multiplier);
+      this.lastWorldCheck = 0;
+    }
     updateCubeSizeControl(changed = "far") {
       const size = this.worldModelManifest?.cellSizeCm;
       for (const id of ["near-cube-size", "cube-size"])
@@ -27470,6 +28061,8 @@ CCC: ${encodeCameraCode(
       this.worldModelManifest = void 0;
       el("near-cube-size-label").hidden = !this.blockModelUrl;
       el("cube-size-label").hidden = !this.blockModelUrl;
+      el("terrain-budget-label").hidden = !this.blockModelUrl;
+      this.updateTerrainBudgetControl();
       this.updateCubeSizeControl();
       el("world-cutaway-label").hidden = true;
       const modelUrl = this.blockModelUrl;
@@ -27775,6 +28368,8 @@ CCC: ${encodeCameraCode(
         cutHeightCm: cutHeight * 100
       });
       this.worldBoundaries.group.visible = checked("show-world-boundaries");
+      this.airSeals.group.visible = checked("debug-toggle") && checked("show-air-seals");
+      this.updateAirVolumes(cutHeight * 100);
       el("terrain-opacity-value").textContent = `${displayNumber(value("terrain-opacity") * 100)}%`;
       if (this.voxelOutline) this.voxelOutline.visible = checked("debug-toggle");
       document.body.classList.toggle("show-debug", checked("debug-toggle"));
@@ -27840,6 +28435,20 @@ Canvas: ${displayNumber(event.clientX - rect.left)}, ${displayNumber(event.clien
       } else {
         this.hoverDebug = void 0;
       }
+      if (this.airSeals.group.visible) {
+        const seal = ray.intersectObjects(this.airSeals.group.children)[0];
+        if (seal && typeof seal.object.userData.airSeal === "string") {
+          const ark = this.map.coordinates.getArkCoordinates(this.toWorld(seal.point));
+          this.hoverDebug = {
+            ark: `${displayNumber(ark.lat)}, ${displayNumber(ark.long)}`,
+            details: seal.object.userData.airSeal
+          };
+          if (select) {
+            this.clearVoxelInspection();
+            this.pinnedDebug = this.hoverDebug;
+          }
+        }
+      }
       this.renderDebugInspection();
       if (ray.params.Points)
         ray.params.Points.threshold = worldUnitsPerPixel(this.camera, rect.height, this.camera.position.distanceTo(this.controls.target)) * (value("resource-size") + 4) / 2;
@@ -27859,6 +28468,67 @@ World XYZ (cm): ${displayNumber(point.x)}, ${displayNumber(point.y)}, ${displayN
 Height ${displayNumber(point.z / 100)} m`;
         if (select) el("resource-details").textContent = text2;
       } else if (select) el("resource-details").textContent = "No resource selected.";
+    }
+    airVolumeStatus(kind, status) {
+      const label = el(`${kind}-air-status`);
+      label.hidden = false;
+      label.textContent = `${kind === "player" ? "Player" : "Death"} air: ${status.manifest?.tiles.length === 0 ? "empty; no connected volume in this region." : status.text}`;
+      el(`${kind}-air-retry`).hidden = !status.retry;
+    }
+    updateAirVolumes(cutHeightCm) {
+      el("air-volume-opacity-value").textContent = `${displayNumber(value("air-volume-opacity") * 100)}%`;
+      for (const kind of ["player", "death"]) {
+        const layer = this.airVolumes[kind];
+        const visible = !!this.airVolumeUrls && checked("debug-toggle") && checked(`show-${kind}-air`);
+        layer.group.visible = visible;
+        if (!visible) {
+          if (layer.active) layer.clear();
+          el(`${kind}-air-status`).hidden = true;
+          el(`${kind}-air-retry`).hidden = true;
+          continue;
+        }
+        layer.setAppearance({
+          exaggeration: 1,
+          opacity: value("air-volume-opacity"),
+          lighting: false,
+          wireframe: false,
+          slopes: false,
+          cutHeightCm,
+          through: checked("air-volume-through")
+        });
+        if (!layer.active && this.airVolumeUrls && this.manifest && this.map) {
+          const m = this.manifest;
+          void layer.enable({
+            url: this.airVolumeUrls[kind],
+            airClass: kind,
+            mapKey: this.selectedKey,
+            centerX: (m.originX + m.maxX) / 2,
+            centerY: (m.originY + m.maxY) / 2,
+            mapBounds: this.map.coordinates
+          });
+        }
+      }
+    }
+    async loadAirSeals(url, signal, generation) {
+      const status = el("air-seals-status");
+      status.hidden = false;
+      status.textContent = "Seals: loading diagnostic separators...";
+      el("air-seals-retry").hidden = true;
+      try {
+        const response = await fetch(url, { signal });
+        const bytes = await boundedResponse(response, WORLD_TILE_BYTES, signal, "Air seals");
+        const data = JSON.parse(new TextDecoder().decode(bytes));
+        if (generation !== this.generation || signal.aborted || !this.manifest) return;
+        const m = this.manifest;
+        const count = this.airSeals.set(data, (m.originX + m.maxX) / 2, (m.originY + m.maxY) / 2);
+        status.textContent = `Seals: ${count.toLocaleString()} diagnostic separators.`;
+        el("air-seals-toggle").hidden = false;
+        this.appearance();
+      } catch (error) {
+        if (generation !== this.generation || signal.aborted) return;
+        status.textContent = `Seals failed: ${error instanceof Error ? error.message : String(error)}`;
+        el("air-seals-retry").hidden = false;
+      }
     }
     renderDebugInspection() {
       const inspection = this.pinnedDebug ?? this.hoverDebug;

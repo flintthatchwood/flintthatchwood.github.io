@@ -305,6 +305,106 @@ function cubeBinary(id: string): ArrayBuffer {
     return bytes;
 }
 
+function budgetMeshBinary(template: ArrayBuffer, vertices: number, triangles: number, morph = false): ArrayBuffer {
+    const bytes = new ArrayBuffer(16 + vertices * (morph ? 24 : 12) + triangles * 13);
+    const v = new DataView(bytes), source = new DataView(template);
+    [source.getUint32(0, true), vertices, triangles, 0].forEach((value, i) => v.setUint32(i * 4, value, true));
+    for (let i = 0; i < vertices; i++)
+        for (let axis = 0; axis < 3; axis++) {
+            v.setFloat32(16 + i * 12 + axis * 4, source.getFloat32(16 + i % 3 * 12 + axis * 4, true), true);
+            if (morph)
+                v.setFloat32(16 + vertices * 12 + triangles * 13 + i * 12 + axis * 4,
+                    source.getFloat32(65 + i % 3 * 12 + axis * 4, true), true);
+        }
+    for (let i = 0; i < triangles; i++) {
+        for (let axis = 0; axis < 3; axis++)
+            v.setUint32(16 + vertices * 12 + i * 12 + axis * 4, source.getUint32(52 + axis * 4, true), true);
+        v.setUint8(16 + vertices * 12 + triangles * 12 + i, source.getUint8(64));
+    }
+    return bytes;
+}
+
+for (const kind of ['cubes', 'triangles'] as const)
+    for (const constraint of ['triangles', 'bytes'] as const)
+        test(`runtime ${kind} budget admits more ${constraint} and coarsens without holes when lowered`, async () => {
+            const m = kind === 'cubes' ? cubeFixture() : fixture();
+            for (const node of m.tiles.filter(node => node.id !== 'root')) {
+                node.lods[0].triangles = constraint === 'triangles' ? 600_000 : 1;
+                node.lods[0].vertices = constraint === 'bytes'
+                    ? kind === 'cubes' ? 1_600_000 : 1_000_000 : 3;
+            }
+            const statuses: WorldModelStatus[] = [];
+            const layer = new WorldModelLayer(status => statuses.push(status), async url => {
+                if (String(url).endsWith('.json')) return Response.json(m);
+                const id = new URL(String(url)).pathname.slice(1, -4);
+                const lod = m.tiles.find(node => node.id === id)!.lods[0];
+                return new Response(budgetMeshBinary(kind === 'cubes' ? cubeBinary(id) : binary(id),
+                    lod.vertices, lod.triangles, lod.morph));
+            });
+            await layer.enable({ ...context, mapBounds: m.bounds });
+            await until(() => layer.meshes.length === 1);
+            layer.animate(1000);
+            const target = new THREE.Vector3(), view = camera(10);
+            layer.update(view, target, 800);
+            assert.equal(layer.meshes.length, 1);
+            layer.setBudgetMultiplier(2);
+            assert.equal(layer.meshes.length, 1, 'The complete parent remains until both children arrive.');
+            await until(() => layer.meshes.length === 2);
+            layer.animate(1500);
+            let disposed = 0;
+            for (const mesh of layer.meshes) mesh.geometry.addEventListener('dispose', () => disposed++);
+            layer.setBudgetMultiplier(1);
+            assert.equal(layer.meshes.length, 2, 'The complete old frontier remains during coarsening.');
+            let now = 2000;
+            await until(() => {
+                layer.animate(now += 300);
+                return layer.meshes.length === 1;
+            });
+            assert.equal(disposed, 2);
+            assert.equal(layer.meshes[0].geometry.index!.count / 3, 1);
+            assert.equal(statuses.at(-1)!.retry, false);
+            assert.match(statuses.at(-1)!.text, /96 MiB/);
+            layer.clear();
+        });
+
+test('budget changes abort partial seam-bearing replacements and cannot commit stale children', async () => {
+    const m = cubeFixture();
+    const signals: AbortSignal[] = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const statuses: WorldModelStatus[] = [];
+    const material = new THREE.MeshBasicMaterial();
+    const time = { value: 1 };
+    const world = new ProgressiveWorld(m, { ...context, mapBounds: m.bounds }, async (url, init) => {
+        const id = new URL(String(url)).pathname.slice(1, -4);
+        if (id === 'b') {
+            signals.push(init!.signal!);
+            await held;
+        }
+        return new Response(cubeBinary(id));
+    }, new THREE.Group(), geometry => new THREE.Mesh(geometry, material), time,
+    status => statuses.push(status));
+    world.start();
+    await until(() => world.meshes.length === 1);
+    const root = world.meshes[0];
+    world.setBudgetMultiplier(2);
+    world.update(camera(10), 800, 1);
+    await until(() => world.allMeshes.length === 2 && signals.length === 1);
+    let disposed = 0;
+    world.allMeshes.find(mesh => mesh !== root)!.geometry.addEventListener('dispose', () => disposed++);
+    world.setBudgetMultiplier(1);
+    assert.equal(signals[0].aborted, true);
+    assert.equal(disposed, 1);
+    assert.deepEqual(world.meshes, [root]);
+    release!();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(world.meshes, [root]);
+    assert.equal(world.allMeshes.length, 1);
+    assert.equal(statuses.at(-1)!.retry, false);
+    world.clear();
+    material.dispose();
+});
+
 test('spatial cube roots can stack vertically but cannot overlap in volume', () => {
     const m = cubeFixture();
     m.statistics.partitionDimensions = 3;

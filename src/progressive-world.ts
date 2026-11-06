@@ -5,18 +5,20 @@ import { cubeSeamGeometry, extractCubeSurface, planCubeSeams, type CubeSurface }
 import {
     worldGeometry,
     worldGeometryBytes,
-    WORLD_RESIDENT_BYTES,
     WORLD_TRIANGLES,
     type WorldModelManifest,
     type WorldModelStatus,
     type WorldTile,
 } from './world-model.js';
 import type { CoordinateSystem } from './data/types.js';
-import { MAX_TERRAIN_TRIANGLES, TerrainBudget } from './terrain-budget.js';
+import { TerrainBudget, worldBudget } from './terrain-budget.js';
 import { cubeMeshCounts, implicitMeshBytes, worldMeshBytes } from './world-mesh-fetch.js';
 import { cubeGridChildren, cubeGridUrl } from './cube-grid.js';
 
 const MORPH_SECONDS = 0.25;
+const geometryBytes = (mesh: THREE.Mesh) =>
+    Object.values(mesh.geometry.attributes).reduce((sum, attribute) => sum + attribute.array.length * 4, 0) +
+    (mesh.geometry.index?.count ?? 0) * 4;
 class TerrainBudgetBlocked extends Error {}
 type MapBounds = Pick<CoordinateSystem, 'minX' | 'minY' | 'maxX' | 'maxY'>;
 interface Context {
@@ -123,6 +125,8 @@ export class ProgressiveWorld {
     private selectionMs = 0;
     private cubeSizes = { near: 1, far: 4 };
     private budget: TerrainBudget;
+    private budgetMultiplier = 1;
+    private limits = worldBudget();
     private budgetLimited = false;
     private buffers = new Map<string, ArrayBuffer>();
     private bufferBytes = 0;
@@ -131,6 +135,30 @@ export class ProgressiveWorld {
     }
     setCubeSizeFactors(near: number, far: number): void {
         this.cubeSizes = cubeSizeFactors(near, far);
+    }
+    setBudgetMultiplier(multiplier: number): void {
+        const limits = worldBudget(multiplier);
+        if (multiplier === this.budgetMultiplier) return;
+        this.budgetMultiplier = multiplier;
+        this.limits = limits;
+        this.budget.setMultiplier(multiplier);
+        this.cancelTransaction();
+        if (!this.initialized) this.start();
+        this.emit();
+    }
+    private cancelTransaction(): void {
+        const tx = this.transaction;
+        if (!tx) return;
+        tx.controller.abort();
+        for (const mesh of tx.loaded.values()) mesh.geometry.dispose();
+        if (tx.finishAt !== undefined)
+            for (const id of tx.remove) {
+                const mesh = this.active.get(id)!.mesh;
+                const attr = mesh.geometry.getAttribute('worldPatchTransition') as THREE.BufferAttribute;
+                for (let i = 0; i < attr.count; i++) attr.setXY(i, this.time.value - MORPH_SECONDS, 1);
+                attr.needsUpdate = true;
+            }
+        this.transaction = undefined;
     }
     constructor(
         private manifest: WorldModelManifest,
@@ -269,7 +297,9 @@ export class ProgressiveWorld {
             )
             .map((node) => ({ node, error: error(node) }))
             .sort((a, b) => a.error - b.error);
-        const overBudget = cubes && current.reduce((sum, p) => sum + p.node.lods[0].triangles, 0) > this.budget.triangles;
+        const overBudget = current.reduce((sum, p) => sum + p.node.lods[0].triangles, 0) >
+            (cubes ? this.budget.triangles : this.limits.triangles) ||
+            this.meshes.reduce((sum, mesh) => sum + geometryBytes(mesh), 0) > this.limits.bytes;
         const cheap = coarsen.find((p) => p.error < 1 || overBudget);
         this.budgetLimited = false;
         if (cheap && this.fits(cheap.node.children!, [cheap.node]))
@@ -310,7 +340,8 @@ export class ProgressiveWorld {
         const replaced = new Set(coarsened.flatMap(node => node.children!));
         for (const p of this.active.values()) {
             if (replaced.has(p.node.id)) continue;
-            bytes += worldGeometryBytes(p.node.lods[0]);
+            bytes += geometryBytes(p.mesh);
+            if (p.seam) bytes += geometryBytes(p.seam);
             if (!remove.includes(p.node.id)) triangles += p.node.lods[0].triangles;
         }
         for (const node of coarsened) {
@@ -323,10 +354,16 @@ export class ProgressiveWorld {
         }
         const currentTriangles = [...this.active.values()].reduce((sum, p) => sum + p.node.lods[0].triangles, 0);
         const coarsening = add.every(node => node.children?.every(id => remove.includes(id)));
-        const triangleLimit = this.cubes
-            ? Math.max(this.budget.triangles, coarsening ? currentTriangles - 1 : 0)
-            : WORLD_TRIANGLES;
-        return triangles <= triangleLimit && bytes <= WORLD_RESIDENT_BYTES;
+        const triangleLimit = Math.max(this.cubes ? this.budget.triangles : this.limits.triangles,
+            coarsening ? currentTriangles - 1 : 0);
+        const currentBytes = this.meshes.reduce((sum, mesh) => sum + geometryBytes(mesh), 0);
+        const removedBytes = remove.reduce((sum, id) => {
+            const patch = this.active.get(id)!;
+            return sum + geometryBytes(patch.mesh) + (patch.seam ? geometryBytes(patch.seam) : 0);
+        }, 0);
+        // A lower user limit cannot instantly free the old frontier without holes.
+        const reclaiming = coarsening && currentBytes > this.limits.bytes && bytes - removedBytes < currentBytes;
+        return triangles <= triangleLimit && (bytes <= this.limits.bytes || reclaiming);
     }
     private replace(remove: string[], nodes: WorldTile[], coarsening: boolean): void {
         if (!this.fits(remove, nodes)) return;
@@ -426,6 +463,12 @@ export class ProgressiveWorld {
             });
     }
     private commit(tx: Transaction, morph: boolean): void {
+        if (!this.fits(tx.remove, tx.nodes)) {
+            this.cancelTransaction();
+            this.budgetLimited = true;
+            this.emit();
+            return;
+        }
         const next = new Map(this.active);
         for (const id of tx.remove) next.delete(id);
         for (const node of tx.nodes)
@@ -438,15 +481,27 @@ export class ProgressiveWorld {
         const patches = [...next.values()].filter((p): p is Patch & { surface: CubeSurface } => !!p.surface);
         const plans = planCubeSeams(patches.map(p => p.surface));
         if (patches.length) {
-            const bytes = (mesh: THREE.Mesh) => mesh.geometry.getAttribute('position').count * 32 +
-                (mesh.geometry.index?.count ?? 0) * 4;
             const finalTriangles = [...next.values()].reduce((sum, p) => sum + (p.mesh.geometry.index?.count ?? 0) / 3, 0) +
                 plans.reduce((sum, plan) => sum + plan.faces.length * 2, 0);
-            const residentBytes = this.meshes.reduce((sum, mesh) => sum + bytes(mesh), 0) +
-                [...tx.loaded.values()].reduce((sum, mesh) => sum + bytes(mesh), 0) +
-                plans.reduce((sum, plan) => sum + plan.faces.length * (4 * 32 + 6 * 4), 0);
-            if (finalTriangles > (this.cubes ? MAX_TERRAIN_TRIANGLES : WORLD_TRIANGLES) || residentBytes > WORLD_RESIDENT_BYTES)
-                throw new Error('Neighbor-aware cube seams exceed the geometry budget.');
+            const currentBytes = this.meshes.reduce((sum, mesh) => sum + geometryBytes(mesh), 0);
+            const seamBytes = plans.reduce((sum, plan) => sum + plan.faces.length * (4 * 32 + 6 * 4), 0);
+            const finalBytes = [...next.values()].reduce((sum, p) => sum + geometryBytes(p.mesh), 0) + seamBytes;
+            const residentBytes = currentBytes +
+                [...tx.loaded.values()].reduce((sum, mesh) => sum + geometryBytes(mesh), 0) +
+                seamBytes;
+            const currentTriangles = this.meshes.reduce((sum, mesh) => sum + (mesh.geometry.index?.count ?? 0) / 3, 0);
+            const coarsening = tx.nodes.every(node => node.children?.every(id => tx.remove.includes(id)));
+            const triangleLimit = this.cubes ? this.limits.cubeTriangles : this.limits.triangles;
+            const reclaimingTriangles = coarsening && finalTriangles < currentTriangles;
+            const reclaimingBytes = coarsening && currentBytes > this.limits.bytes && finalBytes < currentBytes;
+            if ((finalTriangles > triangleLimit && !reclaimingTriangles) ||
+                (residentBytes > this.limits.bytes && !reclaimingBytes)) {
+                if (!this.initialized) throw new Error('Neighbor-aware cube seams exceed the geometry budget.');
+                this.cancelTransaction();
+                this.budgetLimited = true;
+                this.emit();
+                return;
+            }
         }
         const seams = plans.map(plan => plan.faces.length ? this.createMesh(cubeSeamGeometry(
             plan, this.context.mapBounds, this.context.centerX, this.context.centerY,
@@ -475,7 +530,7 @@ export class ProgressiveWorld {
         });
         this.transaction = undefined;
         if (!this.initialized && this.manifest.grid)
-            this.budget = new TerrainBudget(tx.nodes.reduce((sum, node) => sum + node.lods[0].triangles, 0));
+            this.budget = new TerrainBudget(tx.nodes.reduce((sum, node) => sum + node.lods[0].triangles, 0), this.budgetMultiplier);
         this.initialized = true;
         this.emit();
     }
@@ -526,8 +581,8 @@ export class ProgressiveWorld {
             text:
                 `${this.cubes ? 'Cubes' : 'Triangles'}: ${this.active.size.toLocaleString()} patches, ${triangles.toLocaleString()} triangles. ` +
                 (this.cubes
-                    ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; adaptive budget ${this.budget.triangles.toLocaleString()} triangles, 96 MiB.`
-                    : `Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) +
+                    ? `${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.near / 100)} m nearby target; far target ${displayNumber(this.manifest.cellSizeCm * this.cubeSizes.far / 100)} m. Complete coarse coverage retained; adaptive budget ${this.budget.triangles.toLocaleString()} triangles (ceiling ${this.limits.cubeTriangles.toLocaleString()}), ${(this.limits.bytes / 1024 / 1024).toLocaleString()} MiB.`
+                    : `Budget ${this.limits.triangles.toLocaleString()} triangles / ${(this.limits.bytes / 1024 / 1024).toLocaleString()} MiB. Hierarchy selection ${this.selectionMs.toFixed(2)} ms; GPU geomorphing.`) +
                 (!this.initialized
                     ? ' Loading complete 3D base; no surface displayed until ready.'
                     : '') +

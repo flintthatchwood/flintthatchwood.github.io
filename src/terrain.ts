@@ -12,7 +12,10 @@ export interface TerrainManifest {
     worldModel?: { url: string };
     blockModel?: { url: string };
     cubeModel?: { url: string };
+    voxelModel?: { url: string };
     boundaryModel?: { url: string };
+    airSeals?: { url: string };
+    airVolumes?: { player: { url: string }; death: { url: string } };
     progressiveModel?: { url: string; default?: boolean };
 }
 
@@ -38,11 +41,18 @@ export function validateManifest(manifest: TerrainManifest, mapKey: string): voi
         'spacing' in manifest ||
         (manifest.progressiveModel?.default !== undefined &&
             typeof manifest.progressiveModel.default !== 'boolean') ||
-        [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.progressiveModel, manifest.boundaryModel].some(
+        (manifest.airVolumes !== undefined &&
+            (manifest.airVolumes === null || typeof manifest.airVolumes !== 'object' ||
+                Array.isArray(manifest.airVolumes) || !manifest.airVolumes.player || !manifest.airVolumes.death)) ||
+        [manifest.worldModel, manifest.blockModel, manifest.cubeModel, manifest.voxelModel, manifest.progressiveModel, manifest.boundaryModel, manifest.airSeals].some(
             (link) =>
                 link !== undefined &&
                 (link === null || typeof link.url !== 'string' || !link.url.trim()),
         )
     )
         throw new Error(`Invalid 3D map metadata for ${mapKey}.`);
+    if (manifest.airVolumes && [manifest.airVolumes.player, manifest.airVolumes.death].some(
+        link => typeof link.url !== 'string' || !link.url.trim(),
+    ))
+        throw new Error(`Invalid air-volume links for ${mapKey}.`);
 }

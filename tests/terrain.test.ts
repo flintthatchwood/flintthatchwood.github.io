@@ -18,6 +18,8 @@ function fixture(): TerrainManifest {
         blockModel: { url: 'blocks.json' },
         cubeModel: { url: 'cubes.json' },
         progressiveModel: { url: 'progressive.json' },
+        airSeals: { url: 'death-air-portals.json' },
+        airVolumes: { player: { url: 'player/world.json' }, death: { url: 'death/world.json' } },
     };
 }
 
@@ -46,6 +48,14 @@ test('3D map metadata rejects old heightfields and malformed bounds or links', (
         { cubeModel: { url: '' } },
         { progressiveModel: { url: 1 } },
         { progressiveModel: { url: 'progressive.json', default: 'yes' } },
+        { airSeals: null },
+        { airSeals: { url: '' } },
+        { airVolumes: null },
+        { airVolumes: [] },
+        { airVolumes: {} },
+        { airVolumes: { player: { url: 'p.json' } } },
+        { airVolumes: { player: { url: '' }, death: { url: 'd.json' } } },
+        { airVolumes: { player: { url: 'p.json' }, death: { url: 3 } } },
     ]) {
         assert.throws(() =>
             validateManifest({ ...fixture(), ...change } as TerrainManifest, 'Island'),

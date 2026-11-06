@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
         "typecheck": "tsc --noEmit",
-        "build:core": "esbuild src/main.ts --bundle --outfile=./root/index.js --format=iife --target=es2020 && echo Build completed at: && powershell -Command \"Get-Date -Format 'yyyy-MM-dd HH:mm:ss'\"",
+        "build:core": "esbuild src/main.ts --bundle --outfile=./root/index.js --format=iife --target=es2020 && esbuild src/voxel-worker.ts --bundle --outfile=./root/voxel-worker.js --format=esm --target=es2020 && echo Build completed at: && powershell -Command \"Get-Date -Format 'yyyy-MM-dd HH:mm:ss'\"",
         "build": "npm run typecheck && npm run build:core && npm run test",
         "test": "node --import tsx --test tests/**/*.test.ts",
         "dev": "npx http-server root -p 8080 -c-1",

@@ -60,7 +60,11 @@ extend beyond the minimap. Texture UVs and GPS still use the original image
 calibration; valid caves outside that rectangle are not clipped or stretched.
 Camera/frustum selection chooses error-based LODs, first covering nearby tiles
 coarsely and then refining them, with a 1,000,000-triangle / 96 MiB resident geometry
-budget for triangles and an adaptive triangle budget for cubes (see below).
+default budget for triangles and an adaptive triangle budget for cubes (see below).
+The Terrain budget slider scales main-terrain triangle and decoded-geometry memory
+limits together from 1× to 32× (32 million triangles / 3 GiB). It does not change
+export resolution, per-tile validation limits, or auxiliary barrier/air-volume
+budgets. Increases and decreases apply without reloading the map.
 Visible tiles are prioritized by camera-to-bounds distance; orbit-target
 distance only breaks ties, so a distant or stale focus cannot spend the budget
 behind nearby terrain. Pending replacements reserve positive budget deltas. Two binary downloads
@@ -68,6 +72,38 @@ can be in flight; their declared-length buffers, temporary geometry during one
 atomic LOD replacement, browser network buffers and the map image
 cache are additional memory. This is not a promise of 96 MiB total browser memory.
 There is no random vertex, point or floor thinning.
+
+### Packed voxel terrain
+
+Optional `voxelModel` terrain links take precedence over `cubeModel`; older mesh
+and progressive contracts remain supported. Version-3 `vrl1` manifests describe
+the same zero-aligned 100 cm lattice, with full-height 128 m XY chunks. The parser
+has already classified player/death air and retained only original solids touching
+player air. Ignored/pruned space is never reclassified as playable air.
+
+`voxel-stream.ts` fetches whole spatial bundles (up to 4 x 4 chunks), deduplicates
+consumers, checks decoded lengths and SHA-256, and maintains a byte-bounded LRU.
+The packed cache starts at 96 MiB and follows the terrain multiplier up to 1 GiB,
+independently of geometry eviction. At most four bundle requests and two meshing
+jobs can be pending. Cancelling the last bundle consumer aborts transport; layer
+clear aborts everything. No stale request can repopulate a cleared cache.
+
+`voxel-runs.ts` validates the 32-byte VRL1 header and six-byte records against
+metadata, including canonical order, dimensions and reserved bits. The dedicated
+`voxel-worker.js` generates closed greedy geometry: endpoints supply caps and
+neighbor-column interval subtraction supplies sides. Chunk exteriors are empty
+for meshing, so all boundary faces remain present without neighboring downloads.
+Only +Z map-top faces retain the map-top flag. Worker output passes the normal
+AWM geometry validator and reuses materials, UVs, clipping, picking and inspection.
+GPU compute can replace meshing without changing the shipped run representation.
+
+Unknown geometry reserves conservative face-count limits, capped at one base
+budget slot to avoid starving a large-but-greedily-small chunk. Actual counts and
+resident limits are checked before admission and then drive subsequent selection.
+Each generated mesh is capped at 32 MiB; meshing rejects more than eight million
+external unit faces. An active cancelled worker is terminated and restarted while
+preserving other queued consumers. Errors are explicit and use the existing retry
+surface. Build/deploy must include both `index.js` and `voxel-worker.js`.
 
 Topmost triangles use the existing calibrated image UVs. Covered mesh and block
 faces sample a 5 x 5 pixel square around their projected XY location and average
@@ -190,13 +226,19 @@ Budget reclamation first verifies that one or more coarsenings can admit the
 higher-priority refinement, including transient residency. Unreachable refinements
 cannot repeatedly evict and reload otherwise useful detail at a stationary camera.
 Only one atomic replacement group is in flight, with at most two downloads.
-Triangles retain the 1,000,000 surface-triangle limit. Cubes start at 1,000,000
+By default, triangles retain the 1,000,000 surface-triangle limit. Cubes start at 1,000,000
 and adapt between the complete-base-aware minimum (at least 250,000) and
 4,000,000 triangles. Every 120 frame intervals, slow median/tail cadence reduces
 the target by 20%; consistently fast cadence raises it by 20% only when more
 detail is budget-blocked. Suspended-tab intervals are excluded. This measures
 frame cadence, not GPU execution time. All geometry, including seams and
-replacement patches waiting for activation, remains limited to 96 MiB.
+replacement patches waiting for activation, remains limited to 96 MiB by default.
+The slider raises the initial adaptive target and memory allowance; the adaptive
+ceiling is the larger of 4 million and the selected triangle limit. Frame-time
+adaptation can still lower cube detail. Changing the slider cancels pending
+replacements; the complete base remains available. When lowering a limit below
+current residency, atomic coarsenings temporarily retain the old frontier while
+strictly reducing its geometry, rather than punching holes to free memory.
 An in-flight cube replacement may finish above a newly reduced adaptive target,
 but never above the hard triangle or memory limits; subsequent selection coarsens.
 
@@ -393,6 +435,29 @@ another voxel replaces it. Clicking within the pinned voxel unpins it, as does
 Unpin. The original pinned bounds determine identity even if resident LOD changes.
 Empty-canvas clicks and drags preserve the pin; changing maps clears it.
 World bounds, center, and scale appear only in the debug-only left-panel footer.
+
+An optional terrain `airSeals` link enables **Show debug > Seals**. Its diagnostic
+sidecar records original-grid bounds, 100 cm cells and selected planar apertures
+under `death-air-planar-original-rim-500cm-v1`. Whole seals must fit a 5 m cube.
+They render as unlit, double-sided bright green surfaces with depth testing and
+depth writes disabled. Hovering or selecting shows their dimensions and world
+coordinates. These meshes are separate from terrain, movement collision, resource
+support and cutaway clipping; map changes dispose them. Loading failures have a
+visible retry action. Sidecars remain private unless explicitly linked by a
+local or published terrain manifest.
+
+An optional terrain `airVolumes` pair links separate `player` and `death` world
+manifests. **Show debug > Player air / Death air** loads these on demand, off by
+default, using the existing bounded world-model tile streamer. Cyan and orange
+closed boundary shells are unlit, double-sided and uniformly translucent, with
+depth writes disabled. Shared opacity, through-terrain rendering and cutaway
+controls affect both classes. Hidden layers abort requests and dispose geometry;
+map changes clear both. Empty classes are valid and reported explicitly, while
+wrong-class metadata or load errors offer retry. These overlays do not participate
+in terrain picking or camera collision. They retain the 1 m lattice, omit internal
+tile walls, and do not claim volumetric optical-density rendering. Isolated and
+excluded air is not relabeled as death air.
+
 Selected voxels have bright cube-edge outlines that never participate in terrain
 picking or camera collision. IDs are `(minX,minY,minZ,scale)` in world metres,
 not scale-dependent grid indices: `(128,128,128,64)` contains `(135,135,135)`.

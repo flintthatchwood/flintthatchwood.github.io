@@ -8,8 +8,11 @@ import { MapData } from './data/types.js';
 import { World, type WorldPoint } from './world/World.js';
 import { resourcePositions } from './resource-positions.js';
 import { json } from './metadata.js';
-import { WorldModelLayer, type WorldModelManifest } from './world-model.js';
+import { AirSealLayer } from './air-seals.js';
+import { boundedResponse } from './bounded-response.js';
+import { WorldModelLayer, WORLD_TILE_BYTES, type WorldModelManifest, type WorldModelStatus } from './world-model.js';
 import { cubeSizeFactors } from './progressive-world.js';
+import { worldBudget } from './terrain-budget.js';
 import { voxelAt, type VoxelSelection } from './voxel-inspection.js';
 import { cameraCodeDirection, decodeCameraCode, encodeCameraCode } from './camera-code.js';
 import { fitMapCamera, resizeMapCamera, worldUnitsPerPixel, type MapCamera } from './camera-view.js';
@@ -137,6 +140,13 @@ export class Viewer {
     private voxelOutline?: THREE.LineSegments<THREE.EdgesGeometry, THREE.LineBasicMaterial>;
     private blockModelUrl?: string;
     private boundaryModelUrl?: string;
+    private airSealUrl?: string;
+    private airSeals = new AirSealLayer();
+    private airVolumeUrls?: { player: string; death: string };
+    private airVolumes = {
+        player: new WorldModelLayer(status => this.airVolumeStatus('player', status)),
+        death: new WorldModelLayer(status => this.airVolumeStatus('death', status)),
+    };
     private worldBoundaryManifest?: WorldModelManifest;
     private worldBoundaries = new WorldModelLayer(status => {
         const label = el('world-boundary-status');
@@ -177,6 +187,7 @@ export class Viewer {
         if (status.manifest && status.manifest !== this.worldModelManifest) {
             const m = (this.worldModelManifest = status.manifest);
             if (m.statistics.hierarchyVersion === 3) this.updateCubeSizeControl();
+            this.updateTerrainBudgetControl();
             el('world-model-details').hidden = false;
             const errorMeaning = m.statistics.errorMeaning;
             el('world-model-resolution').textContent =
@@ -280,6 +291,9 @@ export class Viewer {
             this.resources,
             this.worldModel.group,
             this.worldBoundaries.group,
+            this.airSeals.group,
+            this.airVolumes.player.group,
+            this.airVolumes.death.group,
             new THREE.AmbientLight(0xffffff, 0.65),
         );
         const sun = new THREE.DirectionalLight(0xfff3dd, 0.8);
@@ -317,6 +331,9 @@ export class Viewer {
                     this.renderer.domElement.clientHeight,
                 );
                 this.worldBoundaries.update(this.camera, this.controls.target, this.renderer.domElement.clientHeight);
+                for (const layer of Object.values(this.airVolumes))
+                    if (layer.group.visible && layer.active)
+                        layer.update(this.camera, this.controls.target, this.renderer.domElement.clientHeight);
             }
             this.renderer.render(this.scene, this.camera);
             if (this.map && this.manifest) {
@@ -432,6 +449,9 @@ export class Viewer {
         input('near-cube-size').addEventListener('input', () => {
             this.updateCubeSizeControl('near');
         });
+        input('terrain-budget').addEventListener('input', () => {
+            this.updateTerrainBudgetControl();
+        });
         el('camera-go').addEventListener('click', () => {
             try {
                 this.ccc((el('camera-code') as HTMLTextAreaElement).value);
@@ -449,6 +469,12 @@ export class Viewer {
             this.renderDebugInspection();
         });
         el('world-boundary-retry').addEventListener('click', () => this.worldBoundaries.retry());
+        for (const kind of ['player', 'death'] as const)
+            el(`${kind}-air-retry`).addEventListener('click', () => this.airVolumes[kind].retry());
+        el('air-seals-retry').addEventListener('click', () => {
+            if (this.airSealUrl && this.abort)
+                void this.loadAirSeals(this.airSealUrl, this.abort.signal, this.generation);
+        });
         input('world-cutaway').addEventListener('input', () => this.appearance());
         el('retry').addEventListener('click', () => {
             if (this.selectedKey) void this.load(this.selectedKey);
@@ -468,6 +494,11 @@ export class Viewer {
             'shading',
             'wireframe',
             'show-world-boundaries',
+            'show-air-seals',
+            'show-player-air',
+            'show-death-air',
+            'air-volume-opacity',
+            'air-volume-through',
             'debug-toggle',
         ])
             input(id).addEventListener('input', () => this.appearance());
@@ -693,6 +724,18 @@ export class Viewer {
         this.selectedKey = key;
         this.worldModel.clear();
         this.worldBoundaries.clear();
+        this.airSeals.clear();
+        this.airVolumeUrls = undefined;
+        for (const kind of ['player', 'death'] as const) {
+            this.airVolumes[kind].clear();
+            el(`${kind}-air-status`).hidden = true;
+            el(`${kind}-air-retry`).hidden = true;
+        }
+        el('air-volume-controls').hidden = true;
+        this.airSealUrl = undefined;
+        el('air-seals-toggle').hidden = true;
+        el('air-seals-status').hidden = true;
+        el('air-seals-retry').hidden = true;
         this.boundaryModelUrl = undefined;
         this.worldBoundaryManifest = undefined;
         el('world-boundary-toggle').hidden = true;
@@ -705,6 +748,7 @@ export class Viewer {
         el('world-model-status').setAttribute('data-debug', '');
         el('world-model-retry').hidden = true;
         el('world-model-details').hidden = true;
+        el('terrain-budget-label').hidden = true;
         el('world-cutaway-label').hidden = true;
         this.controls.maxPolarAngle = this.movementMode === 'camera' ? Math.PI - 0.001 : Math.PI * 0.495;
         this.abort?.abort();
@@ -805,13 +849,22 @@ export class Viewer {
             this.buildResources();
             this.home(true);
             el('loading').hidden = true;
-            this.blockModelUrl = manifest.cubeModel && manifestUrl
-                ? new URL(manifest.cubeModel.url, manifestUrl).href
+            const terrainModel = manifest.voxelModel ?? manifest.cubeModel;
+            this.blockModelUrl = terrainModel && manifestUrl
+                ? new URL(terrainModel.url, manifestUrl).href
                 : undefined;
             this.boundaryModelUrl = manifest.boundaryModel && manifestUrl
                 ? new URL(manifest.boundaryModel.url, manifestUrl).href
                 : undefined;
             el('world-boundary-toggle').hidden = !this.boundaryModelUrl;
+            this.airSealUrl = manifest.airSeals && manifestUrl
+                ? new URL(manifest.airSeals.url, manifestUrl).href : undefined;
+            if (this.airSealUrl) void this.loadAirSeals(this.airSealUrl, signal, generation);
+            this.airVolumeUrls = manifest.airVolumes && manifestUrl ? {
+                player: new URL(manifest.airVolumes.player.url, manifestUrl).href,
+                death: new URL(manifest.airVolumes.death.url, manifestUrl).href,
+            } : undefined;
+            el('air-volume-controls').hidden = !this.airVolumeUrls;
             this.updateWorldModel();
         } catch (error) {
             if (generation !== this.generation) return;
@@ -860,6 +913,18 @@ export class Viewer {
         });
     }
 
+    private updateTerrainBudgetControl(): void {
+        const multiplier = 2 ** value('terrain-budget');
+        const limits = worldBudget(multiplier);
+        const memory = limits.bytes / 1024 / 1024;
+        const unit = this.worldModelManifest?.statistics.hierarchyVersion === 3 ? 'triangle target' : 'triangles';
+        const text = `${limits.triangles / 1_000_000}M ${unit} / ${memory >= 1024 ? `${memory / 1024} GiB` : `${memory} MiB`}`;
+        el('terrain-budget-value').textContent = text;
+        input('terrain-budget').setAttribute('aria-valuetext', text);
+        this.worldModel.setBudgetMultiplier(multiplier);
+        this.lastWorldCheck = 0;
+    }
+
     private updateCubeSizeControl(changed: 'near' | 'far' = 'far'): void {
         const size = this.worldModelManifest?.cellSizeCm;
         for (const id of ['near-cube-size', 'cube-size'])
@@ -880,6 +945,8 @@ export class Viewer {
         this.worldModelManifest = undefined;
         el('near-cube-size-label').hidden = !this.blockModelUrl;
         el('cube-size-label').hidden = !this.blockModelUrl;
+        el('terrain-budget-label').hidden = !this.blockModelUrl;
+        this.updateTerrainBudgetControl();
         this.updateCubeSizeControl();
         el('world-cutaway-label').hidden = true;
         const modelUrl = this.blockModelUrl;
@@ -1215,6 +1282,8 @@ export class Viewer {
             cutHeightCm: cutHeight * 100,
         });
         this.worldBoundaries.group.visible = checked('show-world-boundaries');
+        this.airSeals.group.visible = checked('debug-toggle') && checked('show-air-seals');
+        this.updateAirVolumes(cutHeight * 100);
         el('terrain-opacity-value').textContent = `${number(value('terrain-opacity') * 100)}%`;
         if (this.voxelOutline) this.voxelOutline.visible = checked('debug-toggle');
         document.body.classList.toggle('show-debug', checked('debug-toggle'));
@@ -1275,6 +1344,20 @@ export class Viewer {
         } else {
             this.hoverDebug = undefined;
         }
+        if (this.airSeals.group.visible) {
+            const seal = ray.intersectObjects(this.airSeals.group.children)[0];
+            if (seal && typeof seal.object.userData.airSeal === 'string') {
+                const ark = this.map.coordinates.getArkCoordinates(this.toWorld(seal.point));
+                this.hoverDebug = {
+                    ark: `${number(ark.lat)}, ${number(ark.long)}`,
+                    details: seal.object.userData.airSeal,
+                };
+                if (select) {
+                    this.clearVoxelInspection();
+                    this.pinnedDebug = this.hoverDebug;
+                }
+            }
+        }
         this.renderDebugInspection();
         if (ray.params.Points)
             ray.params.Points.threshold =
@@ -1299,6 +1382,63 @@ export class Viewer {
             const text = `${point.resourceType}${point.type === 'cluster' ? ` · ${point.count} nodes (centroid)` : ''}\nLat ${number(ark.lat)} / Long ${number(ark.long)}\nWorld XYZ (cm): ${number(point.x)}, ${number(point.y)}, ${number(point.z)}\nHeight ${number(point.z / 100)} m`;
             if (select) el('resource-details').textContent = text;
         } else if (select) el('resource-details').textContent = 'No resource selected.';
+    }
+
+    private airVolumeStatus(kind: 'player' | 'death', status: WorldModelStatus): void {
+        const label = el(`${kind}-air-status`);
+        label.hidden = false;
+        label.textContent = `${kind === 'player' ? 'Player' : 'Death'} air: ${
+            status.manifest?.tiles.length === 0 ? 'empty; no connected volume in this region.' : status.text}`;
+        el(`${kind}-air-retry`).hidden = !status.retry;
+    }
+
+    private updateAirVolumes(cutHeightCm: number): void {
+        el('air-volume-opacity-value').textContent = `${number(value('air-volume-opacity') * 100)}%`;
+        for (const kind of ['player', 'death'] as const) {
+            const layer = this.airVolumes[kind];
+            const visible = !!this.airVolumeUrls && checked('debug-toggle') && checked(`show-${kind}-air`);
+            layer.group.visible = visible;
+            if (!visible) {
+                if (layer.active) layer.clear();
+                el(`${kind}-air-status`).hidden = true;
+                el(`${kind}-air-retry`).hidden = true;
+                continue;
+            }
+            layer.setAppearance({
+                exaggeration: 1, opacity: value('air-volume-opacity'), lighting: false,
+                wireframe: false, slopes: false, cutHeightCm, through: checked('air-volume-through'),
+            });
+            if (!layer.active && this.airVolumeUrls && this.manifest && this.map) {
+                const m = this.manifest;
+                void layer.enable({
+                    url: this.airVolumeUrls[kind], airClass: kind, mapKey: this.selectedKey,
+                    centerX: (m.originX + m.maxX) / 2, centerY: (m.originY + m.maxY) / 2,
+                    mapBounds: this.map.coordinates,
+                });
+            }
+        }
+    }
+
+    private async loadAirSeals(url: string, signal: AbortSignal, generation: number): Promise<void> {
+        const status = el('air-seals-status');
+        status.hidden = false;
+        status.textContent = 'Seals: loading diagnostic separators...';
+        el('air-seals-retry').hidden = true;
+        try {
+            const response = await fetch(url, { signal });
+            const bytes = await boundedResponse(response, WORLD_TILE_BYTES, signal, 'Air seals');
+            const data: unknown = JSON.parse(new TextDecoder().decode(bytes));
+            if (generation !== this.generation || signal.aborted || !this.manifest) return;
+            const m = this.manifest;
+            const count = this.airSeals.set(data, (m.originX + m.maxX) / 2, (m.originY + m.maxY) / 2);
+            status.textContent = `Seals: ${count.toLocaleString()} diagnostic separators.`;
+            el('air-seals-toggle').hidden = false;
+            this.appearance();
+        } catch (error) {
+            if (generation !== this.generation || signal.aborted) return;
+            status.textContent = `Seals failed: ${error instanceof Error ? error.message : String(error)}`;
+            el('air-seals-retry').hidden = false;
+        }
     }
 
     private renderDebugInspection(): void {

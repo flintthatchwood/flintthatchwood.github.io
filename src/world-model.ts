@@ -5,10 +5,12 @@ import type { CoordinateSystem } from './data/types.js';
 import { ProgressiveWorld, attachWorldMorph, cubeSizeFactors } from './progressive-world.js';
 import { validateVoxelReference, VoxelReferenceReader, type VoxelReference } from './voxel-inspection.js';
 import { cubeGridRoots, type CubeGrid } from './cube-grid.js';
+import { WORLD_RESIDENT_BYTES, WORLD_TRIANGLES, worldBudget } from './terrain-budget.js';
+import { VoxelBundles, VoxelWorker } from './voxel-stream.js';
+import { decodeVoxelRuns, type VoxelDescriptor, type VoxelMesher } from './voxel-runs.js';
 
 export const WORLD_TILE_BYTES = 32 * 1024 * 1024;
-export const WORLD_RESIDENT_BYTES = 96 * 1024 * 1024;
-export const WORLD_TRIANGLES = 1_000_000;
+export { WORLD_RESIDENT_BYTES, WORLD_TRIANGLES } from './terrain-budget.js';
 export interface WorldBounds {
     minX: number;
     minY: number;
@@ -27,6 +29,7 @@ export interface WorldLod {
     byteOffset?: number;
     byteLength?: number;
     discovered?: boolean;
+    voxel?: VoxelDescriptor;
 }
 export interface WorldTile {
     id: string;
@@ -35,10 +38,10 @@ export interface WorldTile {
     children?: string[];
 }
 export interface WorldModelManifest {
-    version: 1 | 2;
+    version: 1 | 2 | 3;
     mapKey: string;
     heightUnits: 'centimeters';
-    meshFormat: 'awm1';
+    meshFormat: 'awm1' | 'vrl1';
     cellSizeCm: number;
     tileSizeCm: number;
     maxErrorCm: number;
@@ -99,6 +102,11 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
     const v = object(value);
     const progressive = v.roots !== undefined;
     const statistics = object(v.statistics);
+    const voxel = v.version === 3 && v.meshFormat === 'vrl1';
+    if (voxel && (progressive || v.grid !== undefined || v.voxelInspection !== undefined ||
+        v.cellSizeCm !== 100 || v.tileSizeCm !== 12800 || v.maxErrorCm !== 0 ||
+        statistics.representation !== 'voxel-runs' || statistics.complete !== true || statistics.geometry !== 'closed-solid'))
+        throw new Error('Invalid closed voxel-run manifest.');
     if (v.version === 2) {
         const grid = object(v.grid), b = bounds(v.bounds);
         const blobRoot = text(grid.blobRoot), processorVersion = text(grid.processorVersion);
@@ -130,18 +138,24 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
         statistics.partitionDimensions !== 2 && statistics.partitionDimensions !== 3)
         throw new Error('Unsupported cube partition dimensions.');
     if (
-        v.version !== 1 ||
+        (!voxel && v.version !== 1) ||
         v.mapKey !== mapKey ||
         v.heightUnits !== 'centimeters' ||
-        v.meshFormat !== 'awm1' ||
+        v.meshFormat !== (voxel ? 'vrl1' : 'awm1') ||
         !Array.isArray(v.tiles) ||
-        !v.tiles.length ||
+        (!v.tiles.length && statistics.representation !== 'air-volume' && !voxel) ||
         v.tiles.length > (progressive ? 262144 : 16384) ||
         !Array.isArray(v.warnings) ||
         !v.warnings.every((w) => typeof w === 'string')
     )
         throw new Error('Invalid world-model manifest.');
+    if (statistics.representation === 'air-volume' &&
+        (statistics.airClass !== 'player' && statistics.airClass !== 'death' || progressive))
+        throw new Error('Invalid air-volume classification.');
     const b = bounds(v.bounds, progressive);
+    if (voxel && (b.minZ >= b.maxZ || b.maxZ - b.minZ > 409500 ||
+        Object.values(b).some(value => value % 100 !== 0)))
+        throw new Error('Voxel world must use the zero-aligned 100 cm grid.');
     const tileSize = number(v.tileSizeCm, 1, statistics.representation === 'world-boundaries' ? 100_000_000 : 1_000_000);
     if (
         !progressive &&
@@ -180,7 +194,9 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
                     Math.abs(box.maxY - Math.min(b.maxY, box.minY + tileSize)) > 0.1)) ||
             !Array.isArray(t.lods) ||
             !t.lods.length ||
-            t.lods.length > 8
+            t.lods.length > (voxel ? 1 : 8) ||
+            (voxel && (box.minZ !== b.minZ || box.maxZ !== b.maxZ ||
+                Object.values(box).some(value => value % 100 !== 0)))
         )
             throw new Error('Invalid/overlapping world-model tile grid.');
         ids.add(id);
@@ -190,8 +206,8 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
             const l = object(rawLod);
             const lod: WorldLod = {
                 url: text(l.url),
-                vertices: integer(l.vertices, 3, 10_000_000),
-                triangles: integer(l.triangles, 1, 10_000_000),
+                vertices: integer(l.vertices, 3, voxel ? 32_000_000 : 10_000_000),
+                triangles: integer(l.triangles, 1, voxel ? 16_000_000 : 10_000_000),
                 maxErrorCm: number(l.maxErrorCm, 0, 100_000),
                 ...(l.byteOffset !== undefined || l.byteLength !== undefined ? {
                     byteOffset: integer(l.byteOffset, 0, Number.MAX_SAFE_INTEGER),
@@ -203,6 +219,30 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
                       ? { morph: true }
                       : {}),
             };
+            if (voxel) {
+                const runs = object(l.voxel);
+                lod.voxel = {
+                    offset: integer(runs.offset, 0, WORLD_TILE_BYTES),
+                    length: integer(runs.length, 38, WORLD_TILE_BYTES),
+                    count: integer(runs.count, 1, Math.floor((WORLD_TILE_BYTES - 32) / 6)),
+                    faces: integer(runs.faces, 6, 8_000_000),
+                    bundleBytes: integer(runs.bundleBytes, 38, WORLD_TILE_BYTES),
+                    sha256: text(runs.sha256),
+                };
+                const d = lod.voxel;
+                const voxelUrl = lod.url === `bundles/${d.sha256}.vrb.gz` ||
+                    /^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.vrb\.gz$/.test(lod.url);
+                if (!/^[0-9a-f]{64}$/.test(d.sha256) || !voxelUrl ||
+                    d.offset + d.length > d.bundleBytes || d.length !== 32 + d.count * 6 ||
+                    lod.vertices !== d.faces * 4 || lod.triangles !== d.faces * 2 || lod.maxErrorCm !== 0 ||
+                    l.morph !== undefined || l.cubeSizeCm !== undefined ||
+                    l.byteOffset !== undefined || l.byteLength !== undefined)
+                    throw new Error('Invalid voxel-run bundle descriptor.');
+                // Unknown chunks may reserve one base-budget slot; actual geometry is checked before admission.
+                lod.triangles = Math.min(lod.triangles, WORLD_TRIANGLES);
+                lod.vertices = Math.min(lod.vertices, Math.floor((WORLD_RESIDENT_BYTES - lod.triangles * 12) / 32));
+                lod.cubeSizeCm = 100;
+            } else if (l.voxel !== undefined) throw new Error('Voxel records require VRL1 metadata.');
             if (progressive && !cubes && l.morph !== true)
                 throw new Error('Progressive patches require collapse correspondence.');
             if (
@@ -211,11 +251,11 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
             )
                 throw new Error('Cube patches require aligned non-morphing cube sizes.');
             if (
-                (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) &&
+                (/^(?:[a-z][a-z0-9+.-]*:|\/|\\)/i.test(lod.url) && !voxel &&
                     !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/[a-z0-9-]+\/managed\/v1\/[0-9a-f]{64}\.(?:awm(?:\.gz)?|awp|awmb)$/.test(lod.url)) ||
                 /[\s\\]/.test(lod.url) ||
                 lod.url.split('/').includes('..') ||
-                worldBinaryBytes(lod) > WORLD_TILE_BYTES ||
+                (!voxel && worldBinaryBytes(lod) > WORLD_TILE_BYTES) ||
                 lod.maxErrorCm < previousError ||
                 (lod.url.endsWith('.awmb') !== (lod.byteOffset !== undefined)) ||
                 (lod.byteOffset !== undefined && (!cubes || !Number.isSafeInteger(lod.byteOffset + lod.byteLength!)))
@@ -240,6 +280,24 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
             ...(progressive ? { children: children as string[] } : {}),
         };
     });
+    if (voxel) {
+        const bundles = new Map<string, VoxelDescriptor[]>();
+        for (const tile of tiles) {
+            const lod = tile.lods[0], records = bundles.get(lod.url) ?? [];
+            records.push(lod.voxel!);
+            bundles.set(lod.url, records);
+        }
+        for (const records of bundles.values()) {
+            let end = 0;
+            const length = records[0].bundleBytes;
+            for (const record of records.sort((a, b) => a.offset - b.offset)) {
+                if (record.bundleBytes !== length || record.offset !== end)
+                    throw new Error('Voxel bundle segments overlap, have gaps or disagree on decoded length.');
+                end += record.length;
+            }
+            if (end !== length) throw new Error('Voxel bundle inventory is incomplete.');
+        }
+    }
     let roots: string[] | undefined;
     if (progressive) {
         if (
@@ -302,10 +360,10 @@ export function validateWorldModel(value: unknown, mapKey: string): WorldModelMa
             throw new Error('Complete progressive base exceeds geometry budgets.');
     }
     return {
-        version: 1,
+        version: voxel ? 3 : 1,
         mapKey,
         heightUnits: 'centimeters',
-        meshFormat: 'awm1',
+        meshFormat: voxel ? 'vrl1' : 'awm1',
         cellSizeCm: number(v.cellSizeCm, 0.1, 10000),
         tileSizeCm: tileSize,
         maxErrorCm: number(v.maxErrorCm, 0, 100_000),
@@ -573,6 +631,7 @@ interface Appearance {
     wireframe: boolean;
     slopes: boolean;
     cutHeightCm: number;
+    through?: boolean;
 }
 interface Context {
     url: string;
@@ -581,6 +640,7 @@ interface Context {
     centerY: number;
     mapBounds: Pick<CoordinateSystem, 'minX' | 'minY' | 'maxX' | 'maxY'>;
     texture?: THREE.Texture;
+    airClass?: 'player' | 'death';
 }
 export interface WorldModelStatus {
     text: string;
@@ -666,6 +726,8 @@ export class WorldModelLayer {
     private manifest?: WorldModelManifest;
     private context?: Context;
     private voxelReader?: VoxelReferenceReader;
+    private voxelBundles?: VoxelBundles;
+    private voxelMesher?: VoxelMesher;
     private controller?: AbortController;
     private revision = 0;
     private resident = new Map<string, Resident>();
@@ -675,6 +737,9 @@ export class WorldModelLayer {
     private progressive?: ProgressiveWorld;
     private morphTime = { value: 0 };
     private cubeSizes = { near: 1, far: 4 };
+    private budgetMultiplier = 1;
+    private limits = worldBudget();
+    private lastView?: { camera: MapCamera; target: THREE.Vector3; height: number };
     private materials: SurfaceMaterial[] = [];
     private wireMaterial?: THREE.MeshBasicMaterial;
     private appearance: Appearance = {
@@ -689,6 +754,7 @@ export class WorldModelLayer {
     constructor(
         private status: (status: WorldModelStatus) => void,
         request: typeof fetch = fetch,
+        private createVoxelMesher: () => VoxelMesher = () => new VoxelWorker(),
     ) {
         this.request = request.bind(globalThis);
     }
@@ -703,6 +769,29 @@ export class WorldModelLayer {
         return undefined;
     }
     voxelFill(bounds: WorldBounds, signal: AbortSignal): Promise<number> | undefined {
+        if (this.manifest?.meshFormat === 'vrl1' && this.context && this.voxelBundles) {
+            const tile = this.manifest.tiles.find(t => t.bounds.minX <= bounds.minX && t.bounds.maxX >= bounds.maxX &&
+                t.bounds.minY <= bounds.minY && t.bounds.maxY >= bounds.maxY &&
+                t.bounds.minZ <= bounds.minZ && t.bounds.maxZ >= bounds.maxZ);
+            if (!tile) return Promise.reject(new Error('No retained voxel chunk covers this inspection cell.'));
+            const descriptor = tile.lods[0].voxel!;
+            return this.voxelBundles.get(new URL(tile.lods[0].url, this.context.url), descriptor, tile.bounds, signal)
+                .then(bytes => {
+                    const decoded = decodeVoxelRuns(bytes, tile.bounds, descriptor.count);
+                    let volume = 0;
+                    for (let i = 0; i < decoded.count; i++) {
+                        const word = decoded.data.getUint32(32 + i * 6, true);
+                        const x = tile.bounds.minX + (word & 255) * 100;
+                        const y = tile.bounds.minY + (word >>> 8 & 255) * 100;
+                        const z = tile.bounds.minZ + (word >>> 16 & 4095) * 100;
+                        const high = z + decoded.data.getUint16(36 + i * 6, true) * 100;
+                        volume += Math.max(0, Math.min(x + 100, bounds.maxX) - Math.max(x, bounds.minX)) *
+                            Math.max(0, Math.min(y + 100, bounds.maxY) - Math.max(y, bounds.minY)) *
+                            Math.max(0, Math.min(high, bounds.maxZ) - Math.max(z, bounds.minZ));
+                    }
+                    return volume / ((bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY) * (bounds.maxZ - bounds.minZ));
+                });
+        }
         if (!this.manifest?.voxelInspection || !this.context) return undefined;
         this.voxelReader ??= new VoxelReferenceReader(this.manifest.voxelInspection, this.context.url, this.request);
         return this.voxelReader.fill(bounds, signal);
@@ -719,6 +808,10 @@ export class WorldModelLayer {
         this.controller = undefined;
         for (const request of this.pending.values()) request.controller.abort();
         this.pending.clear();
+        this.voxelBundles?.clear();
+        this.voxelBundles = undefined;
+        this.voxelMesher?.dispose();
+        this.voxelMesher = undefined;
         this.progressive?.clear();
         this.progressive = undefined;
         for (const item of this.resident.values()) item.mesh.geometry.dispose();
@@ -733,6 +826,7 @@ export class WorldModelLayer {
         this.voxelReader = undefined;
         this.manifest = undefined;
         this.desired = [];
+        this.lastView = undefined;
         this.failed.clear();
     }
     async enable(context: Context): Promise<void> {
@@ -753,8 +847,15 @@ export class WorldModelLayer {
                 JSON.parse(new TextDecoder().decode(bytes)),
                 context.mapKey,
             );
+            if (context.airClass && (manifest.statistics.representation !== 'air-volume' ||
+                manifest.statistics.airClass !== context.airClass))
+                throw new Error(`Expected ${context.airClass} air-volume metadata.`);
             if (revision !== this.revision) return;
             this.manifest = manifest;
+            if (manifest.meshFormat === 'vrl1') {
+                this.voxelBundles = new VoxelBundles(this.request, this.voxelCacheBudget());
+                this.voxelMesher = this.createVoxelMesher();
+            }
             this.makeMaterials();
             this.setAppearance(this.appearance);
             if (manifest.roots) {
@@ -776,6 +877,7 @@ export class WorldModelLayer {
                     (status) => this.status({ ...status, manifest }),
                 );
                 this.progressive.setCubeSizeFactors(this.cubeSizes.near, this.cubeSizes.far);
+                this.progressive.setBudgetMultiplier(this.budgetMultiplier);
                 this.progressive.start();
                 return;
             }
@@ -801,18 +903,21 @@ export class WorldModelLayer {
         for (let flag = 0; flag < this.materials.length; flag++) {
             const material = this.materials[flag];
             const boundary = this.manifest?.statistics.representation === 'world-boundaries';
+            const volume = this.manifest?.statistics.representation === 'air-volume';
             const mapped = !!(flag & 1) || flag === 4,
                 walkable = !!(flag & 2);
             material.color.set(
-                boundary ? '#72dbf6' : appearance.slopes && walkable
+                volume ? this.manifest?.statistics.airClass === 'player' ? '#4bd8ff' : '#ff7547'
+                    : boundary ? '#72dbf6' : appearance.slopes && walkable
                     ? '#3edc65'
                     : this.context?.texture
                       ? '#ffffff'
                       : '#394149',
             );
-            material.opacity = boundary ? 0.28 * appearance.opacity : mapped ? appearance.opacity : 1;
-            material.transparent = boundary || material.opacity < 1;
-            material.depthWrite = !boundary;
+            material.opacity = volume ? appearance.opacity : boundary ? 0.28 * appearance.opacity : mapped ? appearance.opacity : 1;
+            material.transparent = volume || boundary || material.opacity < 1;
+            material.depthWrite = !boundary && !volume;
+            material.depthTest = !volume || !appearance.through;
             material.polygonOffset = appearance.wireframe;
             material.polygonOffsetFactor = 1;
             material.polygonOffsetUnits = 1;
@@ -827,6 +932,7 @@ export class WorldModelLayer {
         this.progressive?.animate();
     }
     update(camera: MapCamera, target: THREE.Vector3, height: number): void {
+        this.lastView = { camera, target, height };
         const m = this.manifest,
             c = this.context;
         if (!m || !c) return;
@@ -842,10 +948,22 @@ export class WorldModelLayer {
             this.appearance.exaggeration,
             c.centerX,
             c.centerY,
+            this.limits.triangles,
+            this.limits.bytes,
         );
         const wanted = new Map(this.desired.map((item) => [item.tile.id, item.lod]));
+        let residentTriangles = 0, residentBytes = 0;
+        for (const item of this.resident.values()) {
+            const lod = item.tile.lods[item.lod];
+            residentTriangles += lod.triangles;
+            residentBytes += worldGeometryBytes(lod);
+        }
         for (const [id, item] of this.resident)
-            if (!wanted.has(id)) {
+            if (!wanted.has(id) || (wanted.get(id) !== item.lod &&
+                (residentTriangles > this.limits.triangles || residentBytes > this.limits.bytes))) {
+                const lod = item.tile.lods[item.lod];
+                residentTriangles -= lod.triangles;
+                residentBytes -= worldGeometryBytes(lod);
                 this.group.remove(item.mesh);
                 item.mesh.geometry.dispose();
                 this.resident.delete(id);
@@ -863,6 +981,22 @@ export class WorldModelLayer {
         this.cubeSizes = cubeSizeFactors(near, far);
         this.progressive?.setCubeSizeFactors(near, far);
     }
+    setBudgetMultiplier(multiplier: number): void {
+        const limits = worldBudget(multiplier);
+        if (this.budgetMultiplier === multiplier) return;
+        this.budgetMultiplier = multiplier;
+        this.limits = limits;
+        this.voxelBundles?.setBudget(this.voxelCacheBudget());
+        if (this.manifest?.meshFormat === 'vrl1') this.failed.clear();
+        this.progressive?.setBudgetMultiplier(multiplier);
+        if (this.lastView) {
+            const { camera, target, height } = this.lastView;
+            this.update(camera, target, height);
+        }
+    }
+    private voxelCacheBudget(): number {
+        return Math.min(1024, 96 * this.budgetMultiplier) * 1024 * 1024;
+    }
     retry(): void {
         if (this.progressive) {
             this.progressive.retry();
@@ -871,6 +1005,12 @@ export class WorldModelLayer {
         if (!this.manifest && this.context) {
             void this.enable(this.context);
             return;
+        }
+        if (this.manifest?.meshFormat === 'vrl1') {
+            for (const request of this.pending.values()) request.controller.abort();
+            this.pending.clear();
+            this.voxelMesher?.dispose();
+            this.voxelMesher = this.createVoxelMesher();
         }
         this.failed.clear();
         this.pump();
@@ -890,7 +1030,7 @@ export class WorldModelLayer {
             ]),
         ];
         const old = this.materials;
-        const blockSides = this.manifest?.statistics.representation === 'blocks';
+        const blockSides = this.manifest?.meshFormat === 'vrl1' || this.manifest?.statistics.representation === 'blocks';
         const image = context.texture ? object(context.texture.image) : undefined;
         const texel = image
             ? new THREE.Vector2(
@@ -900,16 +1040,17 @@ export class WorldModelLayer {
             : undefined;
         this.materials = Array.from({ length: blockSides ? 5 : 4 }, (_, flag) => {
             const boundary = this.manifest?.statistics.representation === 'world-boundaries';
+            const volume = this.manifest?.statistics.representation === 'air-volume';
             const common = {
-                map: boundary ? null : context.texture ?? null,
+                map: boundary || volume ? null : context.texture ?? null,
                 side: THREE.DoubleSide,
                 clippingPlanes,
             };
-            const material = this.appearance.lighting && !boundary
+            const material = this.appearance.lighting && !boundary && !volume
                 ? new THREE.MeshPhongMaterial({ ...common, flatShading: true, specular: '#000000' })
                 : new THREE.MeshBasicMaterial(common);
             if (boundary) energyField(material, this.morphTime);
-            else if (!(flag & 1) && texel) colorCoveredSurface(material, texel);
+            else if (!volume && !(flag & 1) && texel) colorCoveredSurface(material, texel);
             return material;
         });
         for (const item of this.resident.values()) item.mesh.material = this.materials;
@@ -965,11 +1106,22 @@ export class WorldModelLayer {
                     worldGeometryBytes(next) - (previous ? worldGeometryBytes(previous) : 0),
                 );
             }
-            if (triangles > WORLD_TRIANGLES || bytes > WORLD_RESIDENT_BYTES) continue;
+            if (triangles > this.limits.triangles || bytes > this.limits.bytes) continue;
             this.pending.set(id, request);
             void (async () => {
                 try {
-                    const bytes = await boundedResponse(
+                    let decodedDescriptor = descriptor;
+                    let bytes: ArrayBuffer;
+                    if (descriptor.voxel) {
+                        const packed = await this.voxelBundles!.get(new URL(descriptor.url, context.url),
+                            descriptor.voxel, selection.tile.bounds, controller.signal);
+                        const result = await this.voxelMesher!.mesh(packed, selection.tile.bounds, descriptor.voxel.count, controller.signal);
+                        if (result.unitFaces !== descriptor.voxel.faces ||
+                            result.vertices > descriptor.voxel.faces * 4 || result.triangles > descriptor.voxel.faces * 2)
+                            throw new Error('Generated voxel faces differ from the exported occupancy.');
+                        bytes = result.bytes;
+                        decodedDescriptor = { ...descriptor, vertices: result.vertices, triangles: result.triangles };
+                    } else bytes = await boundedResponse(
                         await this.request(new URL(descriptor.url, context.url), {
                             signal: controller.signal,
                         }),
@@ -981,13 +1133,26 @@ export class WorldModelLayer {
                     if (revision !== this.revision || this.pending.get(id) !== request) return;
                     const geometry = worldGeometry(
                         bytes,
-                        descriptor,
+                        decodedDescriptor,
                         selection.tile.bounds,
                         context.centerX,
                         context.centerY,
                         context.mapBounds,
-                        this.manifest?.statistics.representation === 'blocks',
+                        !!descriptor.voxel || this.manifest?.statistics.representation === 'blocks',
                     );
+                    if (descriptor.voxel) {
+                        descriptor.vertices = decodedDescriptor.vertices;
+                        descriptor.triangles = decodedDescriptor.triangles;
+                        let totalTriangles = descriptor.triangles, totalBytes = worldGeometryBytes(descriptor);
+                        for (const [residentId, item] of this.resident) if (residentId !== id) {
+                            totalTriangles += item.tile.lods[item.lod].triangles;
+                            totalBytes += worldGeometryBytes(item.tile.lods[item.lod]);
+                        }
+                        if (totalTriangles > this.limits.triangles || totalBytes > this.limits.bytes) {
+                            geometry.dispose();
+                            throw new Error('Closed voxel geometry exceeds the selected budget; increase the terrain budget or move closer, then retry');
+                        }
+                    }
                     const old = this.resident.get(id);
                     if (old) {
                         this.group.remove(old.mesh);
@@ -1024,8 +1189,9 @@ export class WorldModelLayer {
             manifest: this.manifest,
             retry: !!error,
             text:
-                `Continuous skin: ${this.resident.size.toLocaleString()} / ${this.manifest.tiles.length.toLocaleString()} tiles resident, ${triangles.toLocaleString()} triangles. ` +
-                'Camera-selected 3D detail; unloaded areas remain empty.' +
+                `${this.manifest.meshFormat === 'vrl1' ? 'Closed voxel terrain' : this.manifest.statistics.representation === 'air-volume' ? 'Volume shells' : 'Continuous skin'}: ${this.resident.size.toLocaleString()} / ${this.manifest.tiles.length.toLocaleString()} tiles resident, ${triangles.toLocaleString()} triangles. ` +
+                `Budget ${this.limits.triangles.toLocaleString()} triangles / ${(this.limits.bytes / 1024 / 1024).toLocaleString()} MiB. Camera-selected 3D detail; unloaded areas remain empty.` +
+                (this.voxelBundles ? ` Packed voxel cache: ${(this.voxelBundles.residentBytes / 1024 / 1024).toFixed(1)} / ${this.voxelCacheBudget() / 1024 / 1024} MiB; geometry is evicted separately.` : '') +
                 (this.pending.size ? ' Loading…' : '') +
                 (error
                     ? ` Tile failed: ${error}. Previous tile retained if available; otherwise this area remains empty.`

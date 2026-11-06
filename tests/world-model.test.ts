@@ -58,6 +58,170 @@ function binary(column = 0, flag = 3): ArrayBuffer {
     view.setUint8(64, flag);
     return data;
 }
+
+function budgetBinary(column: number, vertices: number, triangles: number): ArrayBuffer {
+    const data = new ArrayBuffer(16 + vertices * 12 + triangles * 13);
+    const v = new DataView(data);
+    [0x314d5741, vertices, triangles, 0].forEach((value, i) => v.setUint32(i * 4, value, true));
+    for (let i = 0; i < vertices; i++) {
+        v.setFloat32(16 + i * 12, column * 100 + (i === 1 ? 100 : 0), true);
+        v.setFloat32(20 + i * 12, i === 2 ? 100 : 0, true);
+        v.setFloat32(24 + i * 12, 100, true);
+    }
+    for (let i = 0; i < triangles; i++) {
+        v.setUint32(16 + vertices * 12 + i * 12 + 4, 1, true);
+        v.setUint32(16 + vertices * 12 + i * 12 + 8, 2, true);
+    }
+    return data;
+}
+
+for (const constraint of ['triangles', 'bytes'] as const)
+    test(`runtime terrain budget raises actual ${constraint} admission and lowers residency without reload`, async () => {
+        const m = fixture();
+        m.bounds.maxX = 300;
+        m.tiles = [0, 1, 2].map(column => ({
+            ...m.tiles[0], id: String(column),
+            bounds: { ...m.tiles[0].bounds, minX: column * 100, maxX: (column + 1) * 100 },
+            lods: [{ url: `${column}.awm`, vertices: constraint === 'bytes' ? 1_100_000 : 3,
+                triangles: constraint === 'triangles' ? 600_000 : 1, maxErrorCm: 0 }],
+        }));
+        const statuses: WorldModelStatus[] = [];
+        const layer = new WorldModelLayer(status => statuses.push(status), async url => {
+            if (String(url).endsWith('.json')) return Response.json(m);
+            const column = Number(new URL(String(url)).pathname.slice(1, -4));
+            const lod = m.tiles[column].lods[0];
+            return new Response(budgetBinary(column, lod.vertices, lod.triangles));
+        });
+        await layer.enable({ url: 'https://test.invalid/world.json', mapKey: 'Island',
+            centerX: 0, centerY: 0, mapBounds: m.bounds });
+        layer.update(view(), new THREE.Vector3(1, 1, .5), 800);
+        await until(() => layer.meshes.length === (constraint === 'triangles' ? 1 : 2));
+        layer.setBudgetMultiplier(2);
+        await until(() => layer.meshes.length === 3);
+        assert.match(statuses.at(-1)!.text, /2,000,000 triangles \/ 192 MiB/);
+        let disposed = 0;
+        for (const mesh of layer.meshes) mesh.geometry.addEventListener('dispose', () => disposed++);
+        layer.setBudgetMultiplier(1);
+        assert.equal(layer.meshes.length, constraint === 'triangles' ? 1 : 2);
+        assert.equal(disposed, constraint === 'triangles' ? 2 : 1);
+        assert.throws(() => layer.setBudgetMultiplier(64), /Terrain budget multiplier/);
+        layer.clear();
+        await layer.enable({ url: 'https://test.invalid/world.json', mapKey: 'Island',
+            centerX: 0, centerY: 0, mapBounds: m.bounds });
+        layer.setBudgetMultiplier(2);
+        layer.clear();
+        await layer.enable({ url: 'https://test.invalid/world.json', mapKey: 'Island',
+            centerX: 0, centerY: 0, mapBounds: m.bounds });
+        layer.update(view(), new THREE.Vector3(), 800);
+        await until(() => layer.meshes.length === 3);
+        layer.clear();
+    });
+
+test('lowering the flat terrain budget releases oversized LODs so coarse replacements can load', async () => {
+    const m = fixture();
+    for (const tile of m.tiles)
+        tile.lods = [600_000, 100_000].map((triangles, i) => ({
+            url: `${tile.id}-${i}.awm`, vertices: 3, triangles, maxErrorCm: i ? 25 : 0,
+        }));
+    const layer = new WorldModelLayer(() => {}, async url => {
+        if (String(url).endsWith('.json')) return Response.json(m);
+        const [column, lod] = new URL(String(url)).pathname.slice(1, -4).split('-').map(Number);
+        return new Response(budgetBinary(column, 3, m.tiles[column].lods[lod].triangles));
+    });
+    layer.setBudgetMultiplier(2);
+    await layer.enable({ url: 'https://test.invalid/world.json', mapKey: 'Island',
+        centerX: 0, centerY: 0, mapBounds });
+    layer.update(view(), new THREE.Vector3(), 800);
+    await until(() => layer.meshes.length === 2);
+    assert.equal(layer.meshes.reduce((sum, mesh) => sum + mesh.geometry.index!.count / 3, 0), 1_200_000);
+    layer.setBudgetMultiplier(1);
+    await until(() => layer.meshes.length === 2);
+    assert.equal(layer.meshes.reduce((sum, mesh) => sum + mesh.geometry.index!.count / 3, 0), 700_000);
+    layer.clear();
+});
+
+test('lowering the flat budget cancels unwanted downloads and rejects their stale responses', async () => {
+    const m = fixture();
+    for (const tile of m.tiles) tile.lods[0].triangles = 600_000;
+    const held: { column: number; signal: AbortSignal; release: (response: Response) => void }[] = [];
+    const statuses: WorldModelStatus[] = [];
+    const layer = new WorldModelLayer(status => statuses.push(status), async (url, init) => {
+        if (String(url).endsWith('.json')) return Response.json(m);
+        const column = Number(new URL(String(url)).pathname.slice(1, -4));
+        return new Promise<Response>(release => held.push({ column, signal: init!.signal!, release }));
+    });
+    layer.setBudgetMultiplier(2);
+    await layer.enable({ url: 'https://test.invalid/world.json', mapKey: 'Island', centerX: 0, centerY: 0, mapBounds });
+    layer.update(view(), new THREE.Vector3(), 800);
+    await until(() => held.length === 2);
+    layer.setBudgetMultiplier(1);
+    assert.equal(held.filter(request => request.signal.aborted).length, 1);
+    for (const request of held) request.release(new Response(budgetBinary(request.column, 3, 600_000)));
+    await until(() => layer.meshes.length === 1 && !statuses.at(-1)!.text.includes('Loading'));
+    assert.equal(layer.meshes[0].geometry.index!.count / 3, 600_000);
+    assert.equal(statuses.at(-1)!.retry, false);
+    layer.clear();
+});
+
+test('air-volume metadata permits an empty exact class but rejects unknown or swapped classifications', async () => {
+    const m = fixture();
+    m.statistics = { representation: 'air-volume', airClass: 'death' };
+    m.tiles = [];
+    assert.equal(validateWorldModel(m, 'Island').tiles.length, 0);
+    assert.throws(() => validateWorldModel({ ...m, statistics: { representation: 'air-volume' } }, 'Island'), /classification/);
+    assert.throws(() => validateWorldModel({ ...m, statistics: { representation: 'air-volume', airClass: 'ignored' } }, 'Island'), /classification/);
+    assert.throws(() => validateWorldModel({ ...m, statistics: {} }, 'Island'), /manifest/);
+    const statuses: WorldModelStatus[] = [];
+    const layer = new WorldModelLayer(status => statuses.push(status), async () => Response.json(m));
+    await layer.enable({ url: 'https://assets.test/world.json', airClass: 'player', mapKey: 'Island',
+        centerX: 0, centerY: 0, mapBounds });
+    assert.match(statuses.at(-1)!.text, /Expected player air-volume/);
+    assert.equal(statuses.at(-1)!.retry, true);
+    assert.equal(layer.meshes.length, 0);
+    layer.clear();
+});
+
+for (const [kind, color] of [['player', '4bd8ff'], ['death', 'ff7547']] as const)
+    test(`${kind} air uses uniform unlit translucency, independent depth testing and cutaway`, async () => {
+        const m = fixture();
+        m.statistics = { representation: 'air-volume', airClass: kind };
+        m.tiles = m.tiles.slice(0, 1);
+        const texture = new THREE.DataTexture(new Uint8Array(4).fill(255), 1, 1);
+        const layer = new WorldModelLayer(() => {}, async url =>
+            String(url).endsWith('world.json') ? Response.json(m) : new Response(binary(0, 0)));
+        await layer.enable({ url: 'https://assets.test/world.json', airClass: kind, mapKey: 'Island',
+            centerX: 0, centerY: 0, mapBounds, texture });
+        layer.setAppearance({ lighting: true, exaggeration: 1, opacity: 0.18,
+            slopes: true, wireframe: false, cutHeightCm: 50, through: true });
+        layer.update(view(), new THREE.Vector3(1, 1, 0.5), 800);
+        await until(() => layer.meshes.length === 1);
+        const mesh = layer.meshes[0];
+        assert.ok(Array.isArray(mesh.material));
+        for (const material of mesh.material) {
+            assert.ok(material instanceof THREE.MeshBasicMaterial);
+            assert.equal(material.map, null);
+            assert.equal(material.color.getHexString(), color);
+            assert.equal(material.opacity, 0.18);
+            assert.equal(material.transparent, true);
+            assert.equal(material.depthWrite, false);
+            assert.equal(material.depthTest, false);
+            assert.equal(material.side, THREE.DoubleSide);
+            assert.equal(material.clippingPlanes![0].constant, 0.5);
+        }
+        layer.setAppearance({ lighting: false, exaggeration: 1, opacity: 0.4,
+            slopes: false, wireframe: false, cutHeightCm: 100, through: false });
+        for (const material of mesh.material) {
+            assert.equal(material.opacity, 0.4);
+            assert.equal(material.depthTest, true);
+        }
+        let disposed = false;
+        mesh.geometry.addEventListener('dispose', () => { disposed = true; });
+        layer.clear();
+        assert.equal(disposed, true);
+        assert.equal(layer.group.children.length, 0);
+        texture.dispose();
+    });
+
 function blockFixture(): { manifest: WorldModelManifest; data: ArrayBuffer } {
     const manifest = fixture();
     manifest.statistics.representation = 'blocks';

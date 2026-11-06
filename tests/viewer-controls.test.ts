@@ -213,13 +213,14 @@ test('viewer uses extracted geometry or an explicit flat map, never sampled heig
     assert.ok(!html.includes('the heightfield fills uncovered'));
 });
 
-test('viewer is cube-only without representation selection; clipboard remains public and cube sizing is wired', () => {
+test('viewer prefers voxel runs with cube fallback and no representation selector; clipboard remains public and cube sizing is wired', () => {
     assert.ok(!html.includes('world-representation'));
     assert.ok(!html.includes('World representation'));
     assert.ok(!viewer.includes('world-representation'));
     assert.ok(!viewer.includes('progressiveModel'));
     assert.ok(!viewer.includes("searchParams.get('world')"));
-    assert.match(viewer, /this.blockModelUrl = manifest.cubeModel/);
+    assert.match(viewer, /const terrainModel = manifest.voxelModel \?\? manifest.cubeModel/);
+    assert.match(viewer, /this.blockModelUrl = terrainModel && manifestUrl/);
     assert.match(viewer, /const modelUrl = this.blockModelUrl;/);
     assert.match(viewer, /el\('cube-size-label'\).hidden = !this.blockModelUrl/);
     for (const id of ['camera-copy', 'camera-paste', 'camera-status']) {
