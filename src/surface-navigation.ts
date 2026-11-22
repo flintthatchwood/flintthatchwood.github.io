@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { MapCamera } from './camera-view.js';
+import { worldUnitsPerPixel, type MapCamera } from './camera-view.js';
 
 export const MIN_FOCUS_DISTANCE = 0.5;
 export const CAMERA_CLEARANCE = 0.25;
@@ -158,6 +158,53 @@ export function orbitSurface(
     lookTarget.sub(origin).applyQuaternion(rotation).add(origin);
     camera.quaternion.premultiply(rotation).normalize();
     camera.updateMatrixWorld();
+}
+
+export function focusSurface(
+    camera: MapCamera,
+    lookTarget: THREE.Vector3,
+    surface?: THREE.Vector3,
+): number {
+    if (!finite(camera.position) || !finite(lookTarget) || (surface && !finite(surface)))
+        throw new Error('Invalid surface-navigation focus input.');
+    const direction = camera.getWorldDirection(new THREE.Vector3());
+    const depth = surface
+        ? surface.clone().sub(camera.position).dot(direction)
+        : camera.position.distanceTo(lookTarget);
+    if (!finite(direction) || !Number.isFinite(depth) || depth < 0)
+        throw new Error('Surface-navigation focus must be in front of the camera.');
+    const distance = Math.max(MIN_FOCUS_DISTANCE, depth);
+    const next = camera.position.clone().addScaledVector(direction, distance);
+    if (!finite(next)) throw new Error('Surface-navigation focus exceeds coordinate precision.');
+    // Rebase depth without turning toward an off-center surface.
+    lookTarget.copy(next);
+    camera.near = THREE.MathUtils.clamp(distance * 0.01, 0.01, 1);
+    camera.updateProjectionMatrix();
+    return depth;
+}
+
+export function panSurface(
+    camera: MapCamera,
+    lookTarget: THREE.Vector3,
+    dx: number,
+    dy: number,
+    viewportHeight: number,
+    focusDistance: number,
+): THREE.Vector3 {
+    if (!finite(camera.position) || !finite(lookTarget) ||
+        ![dx, dy, viewportHeight, focusDistance, camera.zoom].every(Number.isFinite) ||
+        viewportHeight <= 0 || focusDistance < 0 || camera.zoom <= 0)
+        throw new Error('Invalid surface-navigation pan input.');
+    const scale = worldUnitsPerPixel(camera, viewportHeight, focusDistance);
+    const movement = new THREE.Vector3(-dx, dy, 0)
+        .applyQuaternion(camera.quaternion).multiplyScalar(scale);
+    if (!Number.isFinite(scale) || scale <= 0 || !finite(movement) ||
+        !finite(camera.position.clone().add(movement)) || !finite(lookTarget.clone().add(movement)))
+        throw new Error('Invalid surface-navigation pan projection.');
+    camera.position.add(movement);
+    lookTarget.add(movement);
+    camera.updateMatrixWorld();
+    return movement;
 }
 
 export function dollySurface(

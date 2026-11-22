@@ -44,7 +44,7 @@ export class CoordinateSystem {
         this.scaleX = scaleX;
         this.scaleY = scaleY;
     }
-    
+
     public getArkCoordinates(worldCoords: Point3D): ArkCoordinates
     {
         // Measure the distance from world center, scale it, then account for afk calling the center 50, 50
@@ -70,6 +70,24 @@ export interface MapInfo {
     name: string;
     modName?: string;
     indexUrl: string;
+    aliases?: Record<string, string>;
+}
+
+export type SubmapType = 'Layer' | 'Arena' | 'Cave';
+
+export interface SubmapInfo {
+    key: string;
+    name: string;
+    type: SubmapType;
+    datasetKey: string;
+    indexUrl: string;
+}
+
+export interface MapIndex {
+    version: 2;
+    mapKey: string;
+    defaultSubmap: string;
+    submaps: SubmapInfo[];
 }
 
 export interface MapVersion {

@@ -8,6 +8,8 @@ import {
     terrainCameraTravel,
     CAMERA_CLEARANCE,
     orbitSurface,
+    focusSurface,
+    panSurface,
     pinchPixels,
     MIN_FOCUS_DISTANCE,
     wheelPixels,
@@ -216,6 +218,70 @@ test('orbit travel scales with distance to the pressed surface', () => {
     });
     close(travel[1] / travel[0], 100);
     assert.ok(travel[0] > 5 && travel[0] < 10);
+});
+
+test('surface focus rebases a stale target without moving the camera or changing heading', () => {
+    const { camera, target } = fixture(1000);
+    const position = camera.position.clone(), orientation = camera.quaternion.clone();
+    const direction = camera.getWorldDirection(new THREE.Vector3());
+    const surface = position.clone().addScaledVector(direction, 10)
+        .addScaledVector(new THREE.Vector3(1, 0, 0).applyQuaternion(orientation), 3);
+    close(focusSurface(camera, target, surface), 10);
+    close(camera.position.distanceTo(position), 0);
+    close(camera.position.distanceTo(target), 10);
+    camera.lookAt(target);
+    close(Math.abs(camera.quaternion.dot(orientation)), 1);
+    const screen = surface.clone().project(camera), radius = camera.position.distanceTo(surface);
+    orbitSurface(camera, target, surface, 65, 35, 800, Math.PI - 0.001);
+    close(surface.clone().project(camera).x, screen.x);
+    close(surface.clone().project(camera).y, screen.y);
+    close(camera.position.distanceTo(surface), radius);
+});
+
+test('pan grabs the surface by the same pixels before and after camera-travel zoom', () => {
+    const { camera, target } = fixture(1000);
+    camera.fov = 48; camera.updateProjectionMatrix();
+    const surface = camera.position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 10);
+    const distances: number[] = [], movements: number[] = [];
+    for (let i = 0; i < 2; i++) {
+        const depth = focusSurface(camera, target, surface), before = surface.clone().project(camera);
+        const originalTarget = target.clone();
+        const movement = panSurface(camera, target, 65, 35, 800, depth);
+        movements.push(movement.length()); distances.push(depth);
+        close(target.clone().sub(originalTarget).distanceTo(movement), 0);
+        const after = surface.clone().project(camera);
+        close((after.x - before.x) * 1200 / 2, 65);
+        close(-(after.y - before.y) * 800 / 2, 35);
+        if (i === 0) dollySurface(camera, target, undefined, -120);
+    }
+    close(movements[1] / movements[0], distances[1] / distances[0]);
+    assert.ok(distances[1] < distances[0]);
+    assert.equal(camera.fov, 48);
+    assert.equal(camera.zoom, 1);
+});
+
+test('surface navigation rejects invalid inputs before moving', () => {
+    const { camera, target } = fixture(100);
+    const position = camera.position.clone();
+    assert.throws(() => panSurface(camera, target, NaN, 0, 1000, 10), /pan input/);
+    assert.throws(() => panSurface(camera, target, 0, 0, 0, 10), /pan input/);
+    assert.throws(() => focusSurface(camera, target,
+        position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), -10)), /in front/);
+    close(camera.position.distanceTo(position), 0);
+});
+
+test('near-surface pan uses the real depth without snapping to the orbit minimum distance', () => {
+    const { camera, target } = fixture(1), position = camera.position.clone();
+    const surface = position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 0.05);
+    const depth = focusSurface(camera, target, surface);
+    close(depth, 0.05);
+    close(camera.position.distanceTo(position), 0);
+    close(camera.position.distanceTo(target), MIN_FOCUS_DISTANCE);
+    const before = surface.clone().project(camera);
+    panSurface(camera, target, 35, 20, 800, depth);
+    const after = surface.clone().project(camera);
+    close((after.x - before.x) * 1200 / 2, 35);
+    close(-(after.y - before.y) * 800 / 2, 20);
 });
 
 test('orbit respects the current legacy or cave-view polar limits', () => {

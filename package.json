@@ -5,6 +5,7 @@
     "type": "module",
     "scripts": {
         "typecheck": "tsc --noEmit",
+        "build:death-contact": "esbuild src/death-contact.ts --bundle --outfile=./.work/output/ragnarok-death-contact-site/death-contact.js --format=iife --target=es2020",
         "build:core": "esbuild src/main.ts --bundle --outfile=./root/index.js --format=iife --target=es2020 && esbuild src/voxel-worker.ts --bundle --outfile=./root/voxel-worker.js --format=esm --target=es2020 && echo Build completed at: && powershell -Command \"Get-Date -Format 'yyyy-MM-dd HH:mm:ss'\"",
         "build": "npm run typecheck && npm run build:core && npm run test",
         "test": "node --import tsx --test tests/**/*.test.ts",

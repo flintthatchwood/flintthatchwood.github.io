@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Ragnarok death-air contact</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                background: #14212b;
+                color: #e8eef2;
+                font:
+                    14px system-ui,
+                    sans-serif;
+            }
+            canvas {
+                display: block;
+                touch-action: none;
+            }
+            #viewport {
+                position: fixed;
+                inset: 0;
+            }
+            .panel {
+                position: fixed;
+                top: 20px;
+                left: 20px;
+                width: 360px;
+                max-height: calc(100dvh - 40px);
+                overflow: auto;
+                background: #13212def;
+                border: 1px solid #36505e;
+                border-radius: 14px;
+                padding: 20px;
+            }
+            h1 {
+                font-size: 21px;
+                margin: 0 0 12px;
+            }
+            p {
+                line-height: 1.5;
+                margin: 10px 0;
+            }
+            .note {
+                color: #bdd2df;
+                font-size: 13px;
+            }
+            .contact {
+                color: #ffb7a9;
+            }
+            label {
+                display: block;
+                margin-top: 16px;
+            }
+            input[type='range'],
+            select {
+                width: 100%;
+            }
+            button,
+            select {
+                background: #243d4e;
+                color: #e8eef2;
+                border: 1px solid #54798e;
+                border-radius: 6px;
+                padding: 8px;
+                font: inherit;
+            }
+            button {
+                cursor: pointer;
+                margin: 8px 4px 0 0;
+            }
+            button:hover,
+            select:hover {
+                background: #33566d;
+            }
+            button:disabled {
+                opacity: 0.5;
+                cursor: default;
+            }
+            :focus-visible {
+                outline: 2px solid #9edbff;
+                outline-offset: 3px;
+            }
+            input {
+                accent-color: #ff8975;
+            }
+            a {
+                color: #9edbff;
+                text-underline-offset: 3px;
+            }
+            output,
+            pre {
+                font-variant-numeric: tabular-nums;
+            }
+            pre {
+                white-space: pre-wrap;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            ::selection {
+                background: #46758e;
+                color: white;
+            }
+            .panel {
+                scrollbar-color: #54798e #13212d;
+            }
+            .legend {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px 16px;
+                font-size: 12px;
+                margin-top: 16px;
+            }
+            .legend span::before {
+                content: '';
+                display: inline-block;
+                width: 9px;
+                height: 9px;
+                margin-right: 5px;
+                background: var(--swatch);
+            }
+            @media (max-width: 650px) {
+                .panel {
+                    top: auto;
+                    bottom: 10px;
+                    left: 10px;
+                    width: calc(100% - 20px);
+                    max-height: 42dvh;
+                    padding: 14px;
+                }
+                h1 {
+                    font-size: 18px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div id="viewport" aria-label="Interactive source geometry and death-air witness"></div>
+        <section class="panel" aria-label="Death-air diagnostic controls">
+            <h1>Ragnarok death-air contact</h1>
+            <p id="status" role="status">Loading retained source evidence…</p>
+            <p class="contact">
+                <strong>First player-component overlap: step 0.</strong> KillZ and authored player
+                seeds already share physical air. There is no later, uniquely first “breach” in
+                union-find. No independent intended-player-region boundary was certified, so a
+                unique first ingress into intended player space is undefined.
+            </p>
+            <p class="note" id="replay-note">
+                The red replay is one verified 1 m voxel witness, not a full flood frontier or a
+                globally shortest path. Its arrival at a spawn is <em>not</em> first player-air
+                contact.
+            </p>
+            <label for="mode">Expansion order</label>
+            <select id="mode">
+                <option value="witness">Verified 1 m voxel witness</option>
+                <option value="components">Full-map tile-component BFS</option>
+            </select>
+            <label for="step">Expansion distance <output id="step-value">0</output></label>
+            <input id="step" type="range" min="0" max="0" value="0" disabled />
+            <button id="play" disabled>Play replay</button>
+            <button id="reset" disabled>First contact</button>
+            <button id="spawn" disabled>Spawn contact</button>
+            <button id="shaft" disabled>Open shaft</button>
+            <button id="map" disabled>Full map</button>
+            <label
+                ><input id="source" type="checkbox" checked /> Original terrain / authored
+                barriers</label
+            >
+            <label><input id="ties" type="checkbox" /> All tied KillZ contact tiles</label>
+            <div class="legend">
+                <span style="--swatch: #ff8975">Reached witness</span>
+                <span style="--swatch: #79cfff">Unreached witness</span>
+                <span style="--swatch: #ffe28c">Raised player seed</span>
+            </div>
+            <pre id="coordinates"></pre>
+            <details>
+                <summary>Definition and evidence</summary>
+                <p id="definition" class="note"></p>
+                <p class="note">
+                    Tile overlays aggregate exact tied seed cells; they are not solid air volumes.
+                    Source mesh is a bounded neighborhood, not a full-map mesh. Drag to orbit;
+                    right-drag to pan. Wheel or pinch moves the camera through world space. Click
+                    the scene, then use WASD and Q/E to fly; Shift moves faster.
+                </p>
+                <p>
+                    <a id="report" href="#">Contact report</a> ·
+                    <a id="witness" href="#">Voxel witness</a>
+                </p>
+            </details>
+        </section>
+        <script src="death-contact.js"></script>
+    </body>
+</html>

@@ -3,7 +3,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DataLoader } from './data/DataLoader.js';
 import { fetchMapImage } from './map-image.js';
 import { flatMapManifest, flatMapMesh } from './flat-map.js';
-import { groupedMaps, mapKeyFromUrl, mapUrl, orderedMaps } from './map-navigation.js';
+import {
+    groupedMaps,
+    groupedSubmaps,
+    mapSelectionFromUrl,
+    mapUrl,
+    orderedMaps,
+} from './map-navigation.js';
 import { MapData } from './data/types.js';
 import { World, type WorldPoint } from './world/World.js';
 import { resourcePositions } from './resource-positions.js';
@@ -121,6 +127,8 @@ export class Viewer {
     private abort?: AbortController;
     private generation = 0;
     private selectedKey = '';
+    private selectedSubmap?: string;
+    private datasetKey = '';
     private marker = markerTexture(false);
     private glow = markerTexture(true);
     private down?: { x: number; y: number };
@@ -228,9 +236,9 @@ export class Viewer {
     getAvailableMaps(): ReturnType<DataLoader['getMapList']> {
         return this.loader.getMapList().then(orderedMaps);
     }
-    switchToMap(key: string): Promise<void> {
+    switchToMap(key: string, submapKey?: string): Promise<void> {
         (el('mapSelect') as HTMLSelectElement).value = key;
-        return this.load(key);
+        return this.load(key, submapKey);
     }
 
     ccc(): string;
@@ -357,10 +365,23 @@ export class Viewer {
                 for (const map of group.maps) options.append(new Option(map.name, map.key));
                 select.append(options);
             }
-            select.addEventListener('change', () => void this.switchToMap(select.value));
+            select.addEventListener('change', () => {
+                history.pushState(null, '', mapUrl(new URL(location.href), select.value));
+                void this.switchToMap(select.value);
+            });
+            const submaps = el('submapSelect') as HTMLSelectElement;
+            submaps.addEventListener('change', () => {
+                history.pushState(
+                    null,
+                    '',
+                    mapUrl(new URL(location.href), this.selectedKey, submaps.value),
+                );
+                void this.load(this.selectedKey, submaps.value);
+            });
             const navigate = async () => {
                 try {
-                    await this.switchToMap(mapKeyFromUrl(new URL(location.href), maps));
+                    const selection = mapSelectionFromUrl(new URL(location.href), maps);
+                    await this.switchToMap(selection.mapKey, selection.submapKey);
                 } catch (error) {
                     this.error(error);
                 }
@@ -477,7 +498,7 @@ export class Viewer {
         });
         input('world-cutaway').addEventListener('input', () => this.appearance());
         el('retry').addEventListener('click', () => {
-            if (this.selectedKey) void this.load(this.selectedKey);
+            if (this.selectedKey) void this.load(this.selectedKey, this.selectedSubmap);
             else location.reload();
         });
         el('home').addEventListener('click', () => this.home(false));
@@ -709,7 +730,7 @@ export class Viewer {
         });
     }
 
-    private async load(key: string): Promise<void> {
+    private async load(key: string, requestedSubmap?: string): Promise<void> {
         this.closeContextMenu();
         this.pinnedDebug = undefined;
         this.clearVoxelInspection();
@@ -722,6 +743,10 @@ export class Viewer {
         this.touchPointers.clear();
         this.pinchDistance = undefined;
         this.selectedKey = key;
+        this.selectedSubmap = requestedSubmap;
+        const submapSelect = el('submapSelect') as HTMLSelectElement;
+        submapSelect.disabled = true;
+        submapSelect.replaceChildren();
         this.worldModel.clear();
         this.worldBoundaries.clear();
         this.airSeals.clear();
@@ -783,24 +808,44 @@ export class Viewer {
             signal.throwIfAborted();
             const info = maps.find((map) => map.key === key);
             if (!info) throw new Error(`Unknown map ${key}`);
-            history.replaceState(history.state, '', mapUrl(new URL(location.href), key));
-            const version = await this.loader.loadMapVersion(key, signal);
+            const index = await this.loader.loadMapIndex(key, signal);
+            signal.throwIfAborted();
+            const submap = index.submaps.find(
+                (submap) => submap.key === (requestedSubmap ?? index.defaultSubmap),
+            );
+            if (!submap) throw new Error(`Unknown submap ${requestedSubmap} for ${info.name}`);
+            for (const group of groupedSubmaps(index.submaps)) {
+                const options = document.createElement('optgroup');
+                options.label = group.label;
+                for (const item of group.submaps) options.append(new Option(item.name, item.key));
+                submapSelect.append(options);
+            }
+            this.selectedSubmap = submap.key;
+            submapSelect.value = submap.key;
+            submapSelect.disabled = false;
+            history.replaceState(
+                history.state,
+                '',
+                mapUrl(new URL(location.href), key, submap.key),
+            );
+            const version = await this.loader.loadMapVersion(key, signal, submap.key);
+            this.datasetKey = version.mapKey;
             const raw = await json<ConstructorParameters<typeof MapData>[0]>(
                 version.dataUrl,
                 signal,
             );
             const map = new MapData(raw);
-            if (map.mapKey !== key || !map.imageName)
+            if (map.mapKey !== version.mapKey || !map.imageName)
                 throw new Error('Map metadata/image is missing or mismatched.');
             const manifestUrl = version.terrainUrl;
             let manifest: TerrainManifest;
             try {
                 if (!manifestUrl) throw new Error(`No terrain metadata published for ${info.name}.`);
                 manifest = await json<TerrainManifest>(manifestUrl, signal);
-                validateManifest(manifest, key);
+                validateManifest(manifest, version.mapKey);
             } catch (error) {
                 signal.throwIfAborted();
-                manifest = flatMapManifest(key, map.coordinates);
+                manifest = flatMapManifest(version.mapKey, map.coordinates);
                 manifest.warnings.push(`Terrain metadata unavailable: ${error instanceof Error ? error.message : String(error)}. Showing a flat map.`);
             }
             const image = await fetchMapImage(
@@ -832,7 +877,7 @@ export class Viewer {
             this.flatMap = flatMapMesh(map.coordinates, manifest, this.texture);
             this.scene.add(this.flatMap);
             this.updateFlatMap();
-            el('map-title').textContent = info.name;
+            el('map-title').textContent = `${info.name} · ${submap.name}`;
             el('warning-summary').textContent =
                 'Terrain is streamed from Blob Storage. A flat map is shown when terrain is unavailable.';
             el('warning-details').hidden = manifest.warnings.length === 0;
@@ -932,9 +977,14 @@ export class Viewer {
         const factors = cubeSizeFactors(2 ** value('near-cube-size'), 2 ** value('cube-size'), changed);
         for (const [id, factor] of [['near-cube-size', factors.near], ['cube-size', factors.far]] as const) {
             input(id).value = String(Math.log2(factor));
-            const label = size ? `${number(factor * size / 100)} m` : 'loading resolution';
+            const label = size ? `${number((factor * size) / 100)} m` : 'loading resolution';
             el(`${id}-value`).textContent = `${factor}\u00d7 (${label})`;
-            input(id).setAttribute('aria-valuetext', size ? `${number(factor * size / 100)} metres` : `${factor} times export resolution`);
+            input(id).setAttribute(
+                'aria-valuetext',
+                size
+                    ? `${number((factor * size) / 100)} metres`
+                    : `${factor} times export resolution`,
+            );
         }
         this.worldModel.setCubeSizeFactors(factors.near, factors.far);
     }
@@ -961,7 +1011,7 @@ export class Viewer {
             this.controls.maxPolarAngle = this.movementMode === 'camera' ? Math.PI - 0.001 : Math.PI * 0.98;
             void this.worldModel.enable({
                 url: modelUrl,
-                mapKey: this.selectedKey,
+                mapKey: this.datasetKey,
                 centerX: (m.originX + m.maxX) / 2,
                 centerY: (m.originY + m.maxY) / 2,
                 mapBounds: this.map.coordinates,
@@ -970,7 +1020,7 @@ export class Viewer {
             if (this.boundaryModelUrl)
                 void this.worldBoundaries.enable({
                     url: this.boundaryModelUrl,
-                    mapKey: this.selectedKey,
+                    mapKey: this.datasetKey,
                     centerX: (m.originX + m.maxX) / 2,
                     centerY: (m.originY + m.maxY) / 2,
                     mapBounds: this.map.coordinates,
@@ -1361,8 +1411,9 @@ export class Viewer {
         this.renderDebugInspection();
         if (ray.params.Points)
             ray.params.Points.threshold =
-                worldUnitsPerPixel(this.camera, rect.height, this.camera.position.distanceTo(this.controls.target)) *
-                (value('resource-size') + 4) / 2;
+                (worldUnitsPerPixel(this.camera, rect.height, this.camera.position.distanceTo(this.controls.target)) *
+                (value('resource-size') + 4)) /
+                2;
         const hits = ray
             .intersectObjects(
                 this.layers.filter((layer) => layer.points.visible).map((layer) => layer.points),
@@ -1411,8 +1462,11 @@ export class Viewer {
             if (!layer.active && this.airVolumeUrls && this.manifest && this.map) {
                 const m = this.manifest;
                 void layer.enable({
-                    url: this.airVolumeUrls[kind], airClass: kind, mapKey: this.selectedKey,
-                    centerX: (m.originX + m.maxX) / 2, centerY: (m.originY + m.maxY) / 2,
+                    url: this.airVolumeUrls[kind],
+                    airClass: kind,
+                    mapKey: this.datasetKey,
+                    centerX: (m.originX + m.maxX) / 2,
+                    centerY: (m.originY + m.maxY) / 2,
                     mapBounds: this.map.coordinates,
                 });
             }

@@ -24159,6 +24159,8 @@
     constructor(indexUrl = DATA_INDEX_URL) {
       this.indexUrl = indexUrl;
       this.indexData = null;
+      this.mapIndexes = /* @__PURE__ */ new Map();
+      this.versions = /* @__PURE__ */ new Map();
     }
     async loadIndex() {
       const response = await fetch(this.indexUrl, { cache: "no-cache" });
@@ -24170,14 +24172,74 @@
         throw new Error("Invalid site data index");
       }
       this.indexData = data;
+      this.mapIndexes.clear();
+      this.versions.clear();
       return this.indexData;
     }
-    async loadMapVersion(mapKey, signal) {
+    async loadMapIndex(mapKey, signal) {
       if (!this.indexData) await this.loadIndex();
+      signal?.throwIfAborted();
+      const cached = this.mapIndexes.get(mapKey);
+      if (cached) return cached;
       const info = this.getMaps().find((map) => map.key === mapKey);
       if (!info) throw new Error(`Map ${mapKey} not found`);
       const url = new URL(info.indexUrl, this.indexUrl);
-      const version = await json(url.href, signal);
+      const data = await json(url.href, signal);
+      signal?.throwIfAborted();
+      let index;
+      if (data.version === 1) {
+        this.versions.set(`${mapKey}:main`, this.resolveVersion(data, mapKey, url));
+        index = {
+          version: 2,
+          mapKey,
+          defaultSubmap: "main",
+          submaps: [
+            {
+              key: "main",
+              name: "Main",
+              type: "Layer",
+              datasetKey: mapKey,
+              indexUrl: url.href
+            }
+          ]
+        };
+      } else {
+        if (data.version !== 2 || data.mapKey !== mapKey || !Array.isArray(data.submaps) || !data.submaps.length || data.submaps.some(
+          (submap) => !submap || typeof submap.key !== "string" || !submap.key || typeof submap.name !== "string" || !submap.name || typeof submap.datasetKey !== "string" || !submap.datasetKey || typeof submap.indexUrl !== "string" || !submap.indexUrl || !["Layer", "Arena", "Cave"].includes(submap.type)
+        ) || new Set(data.submaps.map((submap) => submap.key)).size !== data.submaps.length || new Set(data.submaps.map((submap) => submap.datasetKey)).size !== data.submaps.length || !data.submaps.some((submap) => submap.key === data.defaultSubmap))
+          throw new Error(`Invalid map version/submap index for ${mapKey}`);
+        index = {
+          ...data,
+          submaps: data.submaps.map((submap) => ({
+            ...submap,
+            indexUrl: new URL(submap.indexUrl, url).href
+          }))
+        };
+      }
+      this.mapIndexes.set(mapKey, index);
+      return index;
+    }
+    async loadMapVersion(mapKey, signal, submapKey) {
+      const index = await this.loadMapIndex(mapKey, signal);
+      const key = submapKey ?? index.defaultSubmap;
+      const submap = index.submaps.find((submap2) => submap2.key === key);
+      if (!submap) throw new Error(`Unknown submap ${key} for ${mapKey}`);
+      signal?.throwIfAborted();
+      const cached = this.versions.get(`${mapKey}:${key}`);
+      if (cached) {
+        this.versions.delete(`${mapKey}:${key}`);
+        return cached;
+      }
+      const url = new URL(submap.indexUrl);
+      const version = this.resolveVersion(
+        await json(url.href, signal),
+        submap.datasetKey,
+        url
+      );
+      signal?.throwIfAborted();
+      return version;
+    }
+    resolveVersion(version, mapKey, url) {
       if (version.version !== 1 || version.mapKey !== mapKey || typeof version.dataUrl !== "string" || !version.dataUrl || typeof version.imageUrl !== "string" || !version.imageUrl || version.terrainUrl !== null && (typeof version.terrainUrl !== "string" || !version.terrainUrl)) {
         throw new Error(`Invalid map version for ${mapKey}`);
       }
@@ -24303,6 +24365,7 @@
     "Aberration_WP",
     "Extinction_WP",
     "LostColony_WP",
+    "Genesis_WP",
     "Genesis_WP_Main",
     "Genesis_WP_Ocean"
   ];
@@ -24327,16 +24390,29 @@
   function orderedMaps(maps) {
     return groupedMaps(maps).flatMap((group) => group.maps);
   }
-  function mapKeyFromUrl(url, maps) {
+  function mapSelectionFromUrl(url, maps) {
     const key = url.searchParams.get("map") ?? maps[0]?.key;
     if (key === void 0) throw new Error("No maps are available.");
-    if (!maps.some((map) => map.key === key)) throw new Error(`Unknown map ${key}`);
-    return key;
+    const map = maps.find((map2) => map2.key === key);
+    const parent = map ?? maps.find((map2) => Object.prototype.hasOwnProperty.call(map2.aliases ?? {}, key));
+    if (!parent) throw new Error(`Unknown map ${key}`);
+    return {
+      mapKey: parent.key,
+      submapKey: url.searchParams.get("submap") ?? (map ? void 0 : parent.aliases?.[key])
+    };
   }
-  function mapUrl(url, key) {
+  function mapUrl(url, key, submapKey) {
     const result = new URL(url);
     result.searchParams.set("map", key);
+    if (submapKey === void 0) result.searchParams.delete("submap");
+    else result.searchParams.set("submap", submapKey);
     return result;
+  }
+  function groupedSubmaps(submaps) {
+    return ["Layer", "Arena", "Cave"].map((type) => ({
+      label: `${type}s`,
+      submaps: submaps.filter((submap) => submap.type === type)
+    })).filter((group) => group.submaps.length > 0);
   }
 
   // src/clustering/rbush3d.ts
@@ -27309,6 +27385,7 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
       this.hidden = /* @__PURE__ */ new Set();
       this.generation = 0;
       this.selectedKey = "";
+      this.datasetKey = "";
       this.marker = markerTexture(false);
       this.glow = markerTexture(true);
       this.orbitPivot = new Vector3();
@@ -27386,9 +27463,9 @@ diffuseColor.a *= 0.25 + 0.75 * fieldGrid;`);
     getAvailableMaps() {
       return this.loader.getMapList().then(orderedMaps);
     }
-    switchToMap(key) {
+    switchToMap(key, submapKey) {
       el("mapSelect").value = key;
-      return this.load(key);
+      return this.load(key, submapKey);
     }
     ccc(code) {
       if (!this.manifest || !this.map || !el("loading").hidden)
@@ -27510,10 +27587,23 @@ CCC: ${encodeCameraCode(
           for (const map of group.maps) options.append(new Option(map.name, map.key));
           select.append(options);
         }
-        select.addEventListener("change", () => void this.switchToMap(select.value));
+        select.addEventListener("change", () => {
+          history.pushState(null, "", mapUrl(new URL(location.href), select.value));
+          void this.switchToMap(select.value);
+        });
+        const submaps = el("submapSelect");
+        submaps.addEventListener("change", () => {
+          history.pushState(
+            null,
+            "",
+            mapUrl(new URL(location.href), this.selectedKey, submaps.value)
+          );
+          void this.load(this.selectedKey, submaps.value);
+        });
         const navigate = async () => {
           try {
-            await this.switchToMap(mapKeyFromUrl(new URL(location.href), maps));
+            const selection = mapSelectionFromUrl(new URL(location.href), maps);
+            await this.switchToMap(selection.mapKey, selection.submapKey);
           } catch (error) {
             this.error(error);
           }
@@ -27621,7 +27711,7 @@ CCC: ${encodeCameraCode(
       });
       input("world-cutaway").addEventListener("input", () => this.appearance());
       el("retry").addEventListener("click", () => {
-        if (this.selectedKey) void this.load(this.selectedKey);
+        if (this.selectedKey) void this.load(this.selectedKey, this.selectedSubmap);
         else location.reload();
       });
       el("home").addEventListener("click", () => this.home(false));
@@ -27837,7 +27927,7 @@ CCC: ${encodeCameraCode(
         this.renderDebugInspection();
       });
     }
-    async load(key) {
+    async load(key, requestedSubmap) {
       this.closeContextMenu();
       this.pinnedDebug = void 0;
       this.clearVoxelInspection();
@@ -27850,6 +27940,10 @@ CCC: ${encodeCameraCode(
       this.touchPointers.clear();
       this.pinchDistance = void 0;
       this.selectedKey = key;
+      this.selectedSubmap = requestedSubmap;
+      const submapSelect = el("submapSelect");
+      submapSelect.disabled = true;
+      submapSelect.replaceChildren();
       this.worldModel.clear();
       this.worldBoundaries.clear();
       this.airSeals.clear();
@@ -27910,24 +28004,44 @@ CCC: ${encodeCameraCode(
         signal.throwIfAborted();
         const info = maps.find((map2) => map2.key === key);
         if (!info) throw new Error(`Unknown map ${key}`);
-        history.replaceState(history.state, "", mapUrl(new URL(location.href), key));
-        const version = await this.loader.loadMapVersion(key, signal);
+        const index = await this.loader.loadMapIndex(key, signal);
+        signal.throwIfAborted();
+        const submap = index.submaps.find(
+          (submap2) => submap2.key === (requestedSubmap ?? index.defaultSubmap)
+        );
+        if (!submap) throw new Error(`Unknown submap ${requestedSubmap} for ${info.name}`);
+        for (const group of groupedSubmaps(index.submaps)) {
+          const options = document.createElement("optgroup");
+          options.label = group.label;
+          for (const item of group.submaps) options.append(new Option(item.name, item.key));
+          submapSelect.append(options);
+        }
+        this.selectedSubmap = submap.key;
+        submapSelect.value = submap.key;
+        submapSelect.disabled = false;
+        history.replaceState(
+          history.state,
+          "",
+          mapUrl(new URL(location.href), key, submap.key)
+        );
+        const version = await this.loader.loadMapVersion(key, signal, submap.key);
+        this.datasetKey = version.mapKey;
         const raw = await json(
           version.dataUrl,
           signal
         );
         const map = new MapData(raw);
-        if (map.mapKey !== key || !map.imageName)
+        if (map.mapKey !== version.mapKey || !map.imageName)
           throw new Error("Map metadata/image is missing or mismatched.");
         const manifestUrl = version.terrainUrl;
         let manifest;
         try {
           if (!manifestUrl) throw new Error(`No terrain metadata published for ${info.name}.`);
           manifest = await json(manifestUrl, signal);
-          validateManifest(manifest, key);
+          validateManifest(manifest, version.mapKey);
         } catch (error) {
           signal.throwIfAborted();
-          manifest = flatMapManifest(key, map.coordinates);
+          manifest = flatMapManifest(version.mapKey, map.coordinates);
           manifest.warnings.push(`Terrain metadata unavailable: ${error instanceof Error ? error.message : String(error)}. Showing a flat map.`);
         }
         const image = await fetchMapImage(
@@ -27958,7 +28072,7 @@ CCC: ${encodeCameraCode(
         this.flatMap = flatMapMesh(map.coordinates, manifest, this.texture);
         this.scene.add(this.flatMap);
         this.updateFlatMap();
-        el("map-title").textContent = info.name;
+        el("map-title").textContent = `${info.name} \xB7 ${submap.name}`;
         el("warning-summary").textContent = "Terrain is streamed from Blob Storage. A flat map is shown when terrain is unavailable.";
         el("warning-details").hidden = manifest.warnings.length === 0;
         el("warning-count").textContent = `${manifest.warnings.length.toLocaleString()} map warnings \u2014 full details`;
@@ -28051,7 +28165,10 @@ CCC: ${encodeCameraCode(
         input(id).value = String(Math.log2(factor));
         const label = size ? `${displayNumber(factor * size / 100)} m` : "loading resolution";
         el(`${id}-value`).textContent = `${factor}\xD7 (${label})`;
-        input(id).setAttribute("aria-valuetext", size ? `${displayNumber(factor * size / 100)} metres` : `${factor} times export resolution`);
+        input(id).setAttribute(
+          "aria-valuetext",
+          size ? `${displayNumber(factor * size / 100)} metres` : `${factor} times export resolution`
+        );
       }
       this.worldModel.setCubeSizeFactors(factors.near, factors.far);
     }
@@ -28076,7 +28193,7 @@ CCC: ${encodeCameraCode(
         this.controls.maxPolarAngle = this.movementMode === "camera" ? Math.PI - 1e-3 : Math.PI * 0.98;
         void this.worldModel.enable({
           url: modelUrl,
-          mapKey: this.selectedKey,
+          mapKey: this.datasetKey,
           centerX: (m.originX + m.maxX) / 2,
           centerY: (m.originY + m.maxY) / 2,
           mapBounds: this.map.coordinates,
@@ -28085,7 +28202,7 @@ CCC: ${encodeCameraCode(
         if (this.boundaryModelUrl)
           void this.worldBoundaries.enable({
             url: this.boundaryModelUrl,
-            mapKey: this.selectedKey,
+            mapKey: this.datasetKey,
             centerX: (m.originX + m.maxX) / 2,
             centerY: (m.originY + m.maxY) / 2,
             mapBounds: this.map.coordinates
@@ -28501,7 +28618,7 @@ Height ${displayNumber(point.z / 100)} m`;
           void layer.enable({
             url: this.airVolumeUrls[kind],
             airClass: kind,
-            mapKey: this.selectedKey,
+            mapKey: this.datasetKey,
             centerX: (m.originX + m.maxX) / 2,
             centerY: (m.originY + m.maxY) / 2,
             mapBounds: this.map.coordinates

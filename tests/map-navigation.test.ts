@@ -1,7 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { IndexData } from '../src/data/types.js';
-import { groupedMaps, mapKeyFromUrl, mapUrl, orderedMaps } from '../src/map-navigation.js';
+import {
+    groupedMaps,
+    groupedSubmaps,
+    mapKeyFromUrl,
+    mapSelectionFromUrl,
+    mapUrl,
+    orderedMaps,
+} from '../src/map-navigation.js';
 
 const maps = [
     { key: 'Aberration_WP', name: 'Aberration', indexUrl: 'maps/aberration/v1.json' },
@@ -18,16 +25,87 @@ test('The Island comes first without mutating the index', () => {
     assert.deepEqual(orderedMaps([maps[0], maps[2]]), [maps[0], maps[2]]);
 });
 
+test('submap links, legacy Genesis aliases and parent switches preserve navigation intent', () => {
+    const parents = [
+        {
+            key: 'Genesis_WP',
+            name: 'Genesis 1',
+            indexUrl: 'genesis.json',
+            aliases: { Genesis_WP_Main: 'biomes', Genesis_WP_Ocean: 'ocean' },
+        },
+    ];
+    assert.deepEqual(
+        mapSelectionFromUrl(new URL('https://viewer.invalid/?map=Genesis_WP_Main'), parents),
+        { mapKey: 'Genesis_WP', submapKey: 'biomes' },
+    );
+    const url = mapUrl(new URL('https://viewer.invalid/?debug=1#camera'), 'Genesis_WP', 'ocean');
+    assert.deepEqual(mapSelectionFromUrl(url, parents), {
+        mapKey: 'Genesis_WP',
+        submapKey: 'ocean',
+    });
+    assert.equal(mapUrl(url, 'TheIsland_WP').searchParams.has('submap'), false);
+    assert.equal(url.searchParams.get('debug'), '1');
+    assert.equal(url.hash, '#camera');
+});
+
+test('submaps use Layer, Arena and Cave item groups without inventing an aggregate', () => {
+    const submaps = [
+        {
+            key: 'cave',
+            name: 'Ice Cave',
+            type: 'Cave' as const,
+            datasetKey: 'Cave',
+            indexUrl: 'cave.json',
+        },
+        {
+            key: 'main',
+            name: 'Main',
+            type: 'Layer' as const,
+            datasetKey: 'Main',
+            indexUrl: 'main.json',
+        },
+        {
+            key: 'arena',
+            name: 'Boss',
+            type: 'Arena' as const,
+            datasetKey: 'Boss',
+            indexUrl: 'boss.json',
+        },
+    ];
+    assert.deepEqual(
+        groupedSubmaps(submaps).map((group) => [group.label, group.submaps[0].key]),
+        [
+            ['Layers', 'main'],
+            ['Arenas', 'arena'],
+            ['Caves', 'cave'],
+        ],
+    );
+    assert.deepEqual(
+        groupedSubmaps([submaps[1]]).map((group) => group.label),
+        ['Layers'],
+    );
+});
+
 test('published maps are grouped in the specified canon and alphabetical DLC order', () => {
-    const index: IndexData = { resourceTypes: [], maps: [
-        ['Svartalfheim_WP', 'Svartalfheim'], ['Genesis_WP_Ocean', 'Genesis (Ocean)'],
-        ['Valguero_WP', 'Valguero'], ['TheCenter_WP', 'The Center'],
-        ['Ragnarok_WP', 'Ragnarok'], ['Astraeos_WP', 'Astraeos'],
-        ['Forglar_WP', 'Forglar'], ['Survive_WP', 'Survive The Night'],
-        ['Genesis_WP_Main', 'Genesis (Main)'], ['LostColony_WP', 'Lost Colony'],
-        ['Extinction_WP', 'Extinction'], ['Aberration_WP', 'Aberration'],
-        ['ScorchedEarth_WP', 'Scorched Earth'], ['TheIsland_WP', 'The Island'],
-    ].map(([key, name]) => ({ key, name, indexUrl: `maps/${key}/v1.json` })) };
+    const index: IndexData = {
+        resourceTypes: [],
+        maps: [
+            ['Svartalfheim_WP', 'Svartalfheim'],
+            ['Genesis_WP_Ocean', 'Genesis (Ocean)'],
+            ['Valguero_WP', 'Valguero'],
+            ['TheCenter_WP', 'The Center'],
+            ['Ragnarok_WP', 'Ragnarok'],
+            ['Astraeos_WP', 'Astraeos'],
+            ['Forglar_WP', 'Forglar'],
+            ['Survive_WP', 'Survive The Night'],
+            ['Genesis_WP_Main', 'Genesis (Main)'],
+            ['LostColony_WP', 'Lost Colony'],
+            ['Extinction_WP', 'Extinction'],
+            ['Aberration_WP', 'Aberration'],
+            ['ScorchedEarth_WP', 'Scorched Earth'],
+            ['TheIsland_WP', 'The Island'],
+        ].map(([key, name]) => ({ key, name, indexUrl: `maps/${key}/v1.json` })),
+    };
     const originalKeys = index.maps.map((map) => map.key);
     const groups = groupedMaps(index.maps);
     assert.deepEqual(
@@ -115,7 +193,9 @@ test('map URL updates canonicalize repeated parameters and encode map keys', () 
     );
     assert.deepEqual(updated.searchParams.getAll('map'), ['Mod Map & Cave']);
     assert.equal(
-        mapKeyFromUrl(updated, [{ key: 'Mod Map & Cave', name: 'Mod', indexUrl: 'maps/mod/v1.json' }]),
+        mapKeyFromUrl(updated, [
+            { key: 'Mod Map & Cave', name: 'Mod', indexUrl: 'maps/mod/v1.json' },
+        ]),
         'Mod Map & Cave',
     );
 });
